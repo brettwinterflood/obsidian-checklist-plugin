@@ -39,11 +39,28 @@ export const mapLinkMeta = (linkMeta: LinkMeta[]) => {
   return map
 }
 
-export const setLineTo = (line: string, setTo: boolean) =>
-  line.replace(
+/** Tasks-style done-date pattern: ✅ YYYY-MM-DD */
+const DONE_DATE_PATTERN = /\s*✅\s*\d{4}-\d{2}-\d{2}\s*$/
+
+const formatDoneDate = () =>
+  ' ✅ ' + new Date().toISOString().slice(0, 10)
+
+export const setLineTo = (line: string, setTo: boolean) => {
+  const match = line.match(
     /^((\s|\>)*([\-\*]|[0-9]+\.)\s\[)([^\]]+)(\].*$)/,
-    `$1${setTo ? 'x' : ' '}$5`,
   )
+  if (!match) return line
+  const prefix = match[1]
+  const checkbox = setTo ? 'x' : ' '
+  let textAfterBracket = match[5].slice(1)
+  textAfterBracket = textAfterBracket.replace(DONE_DATE_PATTERN, '').trimEnd()
+  if (setTo) {
+    textAfterBracket = (textAfterBracket ? textAfterBracket + ' ' : '') + formatDoneDate()
+  }
+  return textAfterBracket
+    ? `${prefix}${checkbox}] ${textAfterBracket}`
+    : `${prefix}${checkbox}]`
+}
 
 export const getAllLinesFromFile = (cache: string) => cache.split(/\r?\n/)
 export const combineFileLines = (lines: string[]) => lines.join('\n')

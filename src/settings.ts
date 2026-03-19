@@ -21,7 +21,7 @@ export interface TodoSettings {
 }
 
 export const DEFAULT_SETTINGS: TodoSettings = {
-  todoPageName: 'todo',
+  todoPageName: '',
   showChecked: false,
   showAllTodos: false,
   showOnlyActiveFile: false,

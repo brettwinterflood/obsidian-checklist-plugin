@@ -219,11 +219,35 @@ const formTodo = (
   }
 }
 
+/** Returns [start, end] inclusive indices of the checklist block containing the given line. */
+const getChecklistBlockBounds = (
+  fileLines: string[],
+  line: number,
+): [number, number] => {
+  if (!lineIsValidTodo(fileLines[line])) return [line, line]
+  let start = line
+  let end = line
+  while (start > 0 && lineIsValidTodo(fileLines[start - 1])) start--
+  while (end < fileLines.length - 1 && lineIsValidTodo(fileLines[end + 1]))
+    end++
+  return [start, end]
+}
+
 const setTodoStatusAtLineTo = (
   fileLines: string[],
   line: number,
   setTo: boolean,
-) => {
-  fileLines[line] = setLineTo(fileLines[line], setTo)
+): string => {
+  const newLineContent = setLineTo(fileLines[line], setTo)
+  fileLines[line] = newLineContent
+
+  if (setTo) {
+    const [, blockEnd] = getChecklistBlockBounds(fileLines, line)
+    if (line < blockEnd) {
+      fileLines.splice(line, 1)
+      fileLines.splice(blockEnd - 1, 0, newLineContent)
+    }
+  }
+
   return combineFileLines(fileLines)
 }
