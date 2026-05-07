@@ -193,6 +193,31 @@ export const hideTodoItem = async (
   return true
 }
 
+export const moveTodoItemToToday = async (
+  item: TodoItem,
+  app: App,
+  expectedOriginalText = item.originalText,
+): Promise<{filePath: string; displayDateTs: number} | false> => {
+  const sourceFile = getFileFromPath(app.vault, item.filePath)
+  if (!sourceFile) return false
+  const sourceContents = await app.vault.read(sourceFile)
+  const sourceLines = getAllLinesFromFile(sourceContents)
+  const sourceLine = sourceLines[item.line]
+  if (!sourceLine || !sourceLine.includes(expectedOriginalText)) return false
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayPath = `${formatLocalDate(today)}.md`
+  let todayFile = getFileFromPath(app.vault, todayPath)
+  if (!todayFile) todayFile = await app.vault.create(todayPath, '')
+
+  sourceLines.splice(item.line, 1)
+  await app.vault.modify(sourceFile, combineFileLines(sourceLines))
+  await app.vault.append(todayFile, `${sourceLine}\n`)
+
+  return {filePath: todayPath, displayDateTs: today.getTime()}
+}
+
 const findAllTodosInFile = (file: FileInfo): TodoItem[] => {
   if (!file.parseEntireFile)
     return file.validTags.flatMap(tag => findAllTodosFromTagBlock(file, tag))
@@ -267,6 +292,7 @@ const formTodo = (
   const spacesIndented = getIndentationSpacesFromTodoLine(line)
   const tagStripped = removeTagFromText(rawText, tagMeta?.main)
   const todoText = rawText
+  const displayDateTs = getDateTsFromFileName(file.file.name) ?? file.file.stat.ctime
   const md = new MD()
     .use(commentPlugin)
     .use(linkPlugin(linkMap))
@@ -282,6 +308,7 @@ const formTodo = (
     fileLabel: getFileLabelFromName(file.file.name),
     fileCreatedTs: file.file.stat.ctime,
     fileModifiedTs: file.file.stat.mtime,
+    displayDateTs,
     rawHTML: md.render(tagStripped),
     todoText,
     line: lineNum,
@@ -289,6 +316,28 @@ const formTodo = (
     fileInfo: file,
     originalText: rawText,
   }
+}
+
+const getDateTsFromFileName = (fileName: string): number | undefined => {
+  const fileLabel = getFileLabelFromName(fileName) ?? fileName
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:\s|$)/.exec(fileLabel)
+  if (!match) return undefined
+  const [, year, month, day] = match
+  const date = new Date(Number(year), Number(month) - 1, Number(day))
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  )
+    return undefined
+  return date.getTime()
+}
+
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 const setTodoPriorityAtLine = (

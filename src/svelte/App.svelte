@@ -12,6 +12,8 @@
   export let _hiddenTags: string[]
   export let hiddenPriorities: Priority[]
   export let dateFilter: DateFilter
+  export let usedTags: string[]
+  export let selectedUsedTag: string
   export let pinnedFilePaths: string[]
   export let ignoredFilePaths: string[]
   export let excludedFolderPaths: string[]
@@ -19,10 +21,12 @@
   export let updateSetting: (updates: Partial<TodoSettings>) => Promise<void>
   export let onSearch: (str: string) => void
   export let onDateFilterChange: (filter: DateFilter) => void
+  export let onUsedTagFilterChange: (tag: string) => void
   export let onOpenTableView: () => void
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
   export let onHideTodo: (item: TodoItem) => Promise<void>
+  export let onMoveToToday: (item: TodoItem) => Promise<void>
   export let onTogglePin: (path: string) => Promise<void>
   export let onPriorityChange: (item: TodoItem, priority: Priority) => Promise<void>
   export let onTextChange: (item: TodoItem, text: string) => Promise<void>
@@ -66,6 +70,10 @@
   )
   $: visibleNoteCount = checklistFilePaths.length
   $: visibleTodoCount = tableItems.length
+  $: priorityCounts = priorities.map((priority) => ({
+    priority,
+    count: tableItems.filter((item) => item.priority === priority).length,
+  }))
 
   const updateNoteVisibility = (path: string, visible: boolean) => {
     const nextIgnored = ignoredFilePaths.filter((p) => p !== path)
@@ -79,7 +87,10 @@
       disableSearch={todoGroups.length === 0}
       noteCount={visibleNoteCount}
       todoCount={visibleTodoCount}
+      {priorityCounts}
       {dateFilter}
+      {usedTags}
+      {selectedUsedTag}
       {todoTags}
       hiddenTags={_hiddenTags}
       showOpenTableButton={!isTableView}
@@ -91,6 +102,7 @@
       onTagStatusChange={updateTagStatus}
       onPriorityStatusChange={updatePriorityStatus}
       onDateFilterChange={onDateFilterChange}
+      onUsedTagFilterChange={onUsedTagFilterChange}
       {onOpenTableView}
       onNoteVisibilityChange={updateNoteVisibility}
       onIgnoredFileToggle={removeIgnored}
@@ -122,6 +134,7 @@
           onHideFile={onHideFile}
           onHideFolder={onHideFolder}
           onHideTodo={onHideTodo}
+          onMoveToToday={onMoveToToday}
         />
       {:else}
         {#each todoGroups as group}

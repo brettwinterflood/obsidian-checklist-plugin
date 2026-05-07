@@ -11,6 +11,8 @@
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
   export let onHideTodo: (item: TodoItem) => Promise<void>
+  export let onMoveToToday: (item: TodoItem) => Promise<void>
+  let groupByDay = false
 
   const priorityOptions: Array<{ value: Priority; label: string }> = [
     { value: "highest", label: "🔺" },
@@ -20,14 +22,7 @@
     { value: "low", label: "🔽" },
     { value: "lowest", label: "⏬" },
   ]
-
-  const handlePriorityChange = async (item: TodoItem, event: Event) => {
-    const target = event.currentTarget as HTMLSelectElement
-    const priority = target.value as Priority
-    window.setTimeout(() => {
-      onPriorityChange(item, priority)
-    }, 0)
-  }
+  const priorityActionOptions = [...priorityOptions].reverse()
 
   const handleTextSave = async (item: TodoItem, event: Event) => {
     const target = event.currentTarget as HTMLInputElement
@@ -43,12 +38,30 @@
     lowest: 5,
   }
 
-  const formatDate = (ts: number) => new Date(ts).toISOString().slice(0, 10)
+  const formatDate = (ts: number) => {
+    const date = new Date(ts)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, "0")
+    const day = String(date.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
+  }
+
+  const daysAgo = (ts: number) => {
+    const itemDate = new Date(ts)
+    itemDate.setHours(0, 0, 0, 0)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return Math.max(0, Math.floor((today.getTime() - itemDate.getTime()) / 86400000))
+  }
 
   $: sortedItems = [...items].sort((a, b) => {
+    if (groupByDay) {
+      const dateDiff = b.displayDateTs - a.displayDateTs
+      if (dateDiff !== 0) return dateDiff
+    }
     const rankDiff = priorityRank[a.priority] - priorityRank[b.priority]
     if (rankDiff !== 0) return rankDiff
-    return b.fileModifiedTs - a.fileModifiedTs
+    return b.displayDateTs - a.displayDateTs
   })
 
   const rowId = (item: TodoItem) => `${item.filePath}:${item.line}`
@@ -56,49 +69,71 @@
     item.filePath.includes("/") ? item.filePath.slice(0, item.filePath.lastIndexOf("/")) : ""
 </script>
 
+<div class="table-controls">
+  <button class:active={groupByDay} on:click={() => (groupByDay = !groupByDay)}>
+    Group by day
+  </button>
+</div>
+
 <table class="todo-table">
   <thead>
     <tr>
-      <th>Priority</th>
       <th>TODO</th>
-      <th>Status</th>
       <th>Note</th>
-      <th>Tag</th>
       <th>Date</th>
-      <th>Hide</th>
+      <th>Days ago</th>
+      <th>Actions</th>
     </tr>
   </thead>
   <tbody>
-    {#each sortedItems as item (rowId(item))}
+    {#each sortedItems as item, index (rowId(item))}
+      {#if groupByDay && (index === 0 || formatDate(sortedItems[index - 1].displayDateTs) !== formatDate(item.displayDateTs))}
+        <tr class="day-group-row">
+          <td colspan="5">{formatDate(item.displayDateTs)}</td>
+        </tr>
+      {/if}
       <tr>
-        <td>
-          <select value={item.priority} on:change={(ev) => handlePriorityChange(item, ev)}>
-            {#each priorityOptions as option}
-              <option value={option.value}>{option.label}</option>
-            {/each}
-          </select>
-        </td>
         <td>
           <input class="todo-input" type="text" value={item.todoText} on:change={(ev) => handleTextSave(item, ev)} />
         </td>
         <td>
-          <input type="checkbox" checked={item.checked} on:change={() => onToggleChecked(item)} />
-        </td>
-        <td>
           <button class="note-link" on:click={(ev) => navToFile(app, item.filePath, ev, item.line)}>{item.fileLabel}</button>
         </td>
-        <td>{item.mainTag ? `#${item.mainTag}${item.subTag ? `/${item.subTag}` : ""}` : "-"}</td>
-        <td>{formatDate(item.fileModifiedTs)}</td>
+        <td>{formatDate(item.displayDateTs)}</td>
+        <td>{daysAgo(item.displayDateTs)}</td>
         <td>
           <div class="hide-cell-actions">
             <div class="hide-menu-wrap">
-              <button class="hide-action" title="Hide options" aria-haspopup="true">
-                Hide
-              </button>
-              <div class="hide-menu">
-                <button on:click={() => onHideTodo(item)}>
-                  Hide todo
-                </button>
+	              <button class="hide-action" title="Actions" aria-haspopup="true">
+	                Actions
+	              </button>
+	              <div class="hide-menu">
+	                <div class="priority-actions" aria-label="Set priority">
+	                  {#each priorityActionOptions as option}
+	                    <button
+	                      class:active={item.priority === option.value}
+	                      title={`Set priority ${option.value}`}
+	                      on:click={() => onPriorityChange(item, option.value)}
+	                    >
+	                      {option.label}
+	                    </button>
+	                  {/each}
+	                </div>
+	                <button
+	                  class="done-action"
+	                  disabled={item.checked}
+	                  on:click={() => {
+	                    if (!item.checked) onToggleChecked(item)
+	                  }}
+	                >
+	                  <span class="done-check">✅</span> Mark as done
+	                </button>
+	                <button on:click={() => onMoveToToday(item)}>
+	                  📅 Move to today's note
+	                </button>
+	                <button on:click={() => onHideTodo(item)}>
+	                  Convert to bullet point
+	                </button>
                 <button on:click={() => onHideFile(item.filePath)}>
                   Hide note
                 </button>
@@ -137,6 +172,29 @@
     margin-top: 0;
   }
 
+  .table-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin: 8px 0;
+  }
+
+  .table-controls > button {
+    width: initial;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--checklist-listItemBorderRadius);
+    background: var(--background-primary);
+    box-shadow: none;
+    color: var(--text-muted);
+  }
+
+  .table-controls > button.active {
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+  }
+
   th,
   td {
     padding: 6px;
@@ -171,39 +229,43 @@
     background: var(--background-secondary);
   }
 
+  .todo-table tbody tr.day-group-row td {
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0;
+    padding: 8px 6px;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .todo-table tbody tr.day-group-row:hover td {
+    background: var(--background-secondary);
+  }
+
   .todo-table th:nth-child(1),
   .todo-table td:nth-child(1) {
-    width: 92px;
+    width: 52%;
   }
 
   .todo-table th:nth-child(2),
   .todo-table td:nth-child(2) {
-    width: 50%;
+    width: 22%;
   }
 
   .todo-table th:nth-child(3),
   .todo-table td:nth-child(3) {
-    width: 64px;
+    width: 110px;
   }
 
   .todo-table th:nth-child(4),
   .todo-table td:nth-child(4) {
-    width: 20%;
+    width: 78px;
   }
 
   .todo-table th:nth-child(5),
   .todo-table td:nth-child(5) {
-    width: 15%;
-  }
-
-  .todo-table th:nth-child(6),
-  .todo-table td:nth-child(6) {
-    width: 110px;
-  }
-
-  .todo-table th:nth-child(7),
-  .todo-table td:nth-child(7) {
-    width: 128px;
+    width: 148px;
   }
 
   .todo-table td {
@@ -212,7 +274,7 @@
     white-space: nowrap;
   }
 
-  .todo-table td:nth-child(7) {
+  .todo-table td:nth-child(5) {
     overflow: visible;
   }
 
@@ -250,21 +312,8 @@
     color: var(--text-normal);
   }
 
-  select {
-    width: 80px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: var(--background-primary);
-    box-shadow: none;
-    outline: none;
-    -webkit-appearance: none;
-    appearance: none;
-  }
-
   .todo-input:hover,
-  .todo-input:focus,
-  select:hover,
-  select:focus {
+  .todo-input:focus {
     border-color: var(--background-modifier-border);
     outline: none;
   }
@@ -329,8 +378,47 @@
     border-color: var(--background-modifier-border);
   }
 
-  .hide-menu > button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+	  .hide-menu > button:disabled {
+	    opacity: 0.5;
+	    cursor: not-allowed;
+	  }
+
+	  .done-action {
+	    color: var(--text-normal);
+	  }
+
+	  .done-check {
+	    color: var(--color-green);
+	    margin-right: 6px;
+	  }
+
+	  .priority-actions {
+	    display: flex;
+	    flex-direction: row;
+	    align-items: center;
+	    gap: 2px;
+	    padding: 2px 2px 6px;
+	    margin-bottom: 4px;
+	    border-bottom: 1px solid var(--background-modifier-border);
+	  }
+
+	  .priority-actions > button {
+	    width: 28px;
+	    height: 28px;
+	    padding: 0;
+	    display: inline-flex;
+	    align-items: center;
+	    justify-content: center;
+	    border: 1px solid transparent;
+	    border-radius: 6px;
+	    background: transparent;
+	    box-shadow: none;
+	    font-size: 13px;
+	  }
+
+	  .priority-actions > button:hover,
+	  .priority-actions > button.active {
+	    background: var(--background-secondary);
+	    border-color: var(--background-modifier-border);
+	  }
 </style>

@@ -14,10 +14,14 @@
   export let showOpenTableButton: boolean = false
   export let noteCount: number = 0
   export let todoCount: number = 0
-  export let dateFilter: DateFilter = "all"
+  export let priorityCounts: Array<{ priority: Priority; count: number }> = []
+  export let dateFilter: DateFilter = "last14"
+  export let usedTags: string[] = []
+  export let selectedUsedTag: string = ""
   export let onTagStatusChange: (tag: string, status: boolean) => void
   export let onPriorityStatusChange: (priority: Priority, status: boolean) => void
   export let onDateFilterChange: (filter: DateFilter) => void
+  export let onUsedTagFilterChange: (tag: string) => void
   export let onOpenTableView: () => void
   export let onNoteVisibilityChange: (path: string, visible: boolean) => void
   export let onIgnoredFileToggle: (path: string) => void
@@ -26,6 +30,14 @@
 
   let showPopover = false
   let search = ""
+  const dateFilters: Array<{ value: DateFilter; label: string }> = [
+    { value: "today", label: "Today" },
+    { value: "last7", label: "1 week" },
+    { value: "last14", label: "2 weeks" },
+    { value: "last30", label: "30 days" },
+    { value: "last60", label: "60 days" },
+    { value: "all", label: "All" },
+  ]
   const priorityLabel = (priority: Priority) => {
     if (priority === "highest") return "🔺 Highest"
     if (priority === "high") return "⏫ High"
@@ -33,6 +45,19 @@
     if (priority === "low") return "🔽 Low"
     if (priority === "lowest") return "⏬ Lowest"
     return "None"
+  }
+  const priorityBadgeLabel = (priority: Priority) => {
+    if (priority === "highest") return "🔺"
+    if (priority === "high") return "⏫"
+    if (priority === "medium") return "🔼"
+    if (priority === "low") return "🔽"
+    if (priority === "lowest") return "⏬"
+    return "-"
+  }
+
+  const handleUsedTagChange = (ev: Event) => {
+    const target = ev.currentTarget as HTMLSelectElement
+    onUsedTagFilterChange(target.value)
   }
 </script>
 
@@ -59,25 +84,35 @@
     {/if}
   </div>
   <div class="date-tabs" role="tablist" aria-label="Date filter">
-    <button
-      class:active={dateFilter === "last60"}
-      role="tab"
-      aria-selected={dateFilter === "last60"}
-      on:click={() => onDateFilterChange("last60")}
-    >
-      Last 60 days
-    </button>
-    <button
-      class:active={dateFilter === "all"}
-      role="tab"
-      aria-selected={dateFilter === "all"}
-      on:click={() => onDateFilterChange("all")}
-    >
-      All
-    </button>
+    {#each dateFilters as filter}
+      <button
+        class:active={dateFilter === filter.value}
+        role="tab"
+        aria-selected={dateFilter === filter.value}
+        on:click={() => onDateFilterChange(filter.value)}
+      >
+        {filter.label}
+      </button>
+    {/each}
   </div>
   <div class="toolbar-actions">
+    <select
+      class="tag-filter"
+      title="Filter by hashtag"
+      value={selectedUsedTag}
+      on:change={handleUsedTagChange}
+    >
+      <option value="">All tags</option>
+      {#each usedTags as tag}
+        <option value={tag}>{tag}</option>
+      {/each}
+    </select>
     <div class="count-pill" title="Visible notes and todos">Notes: {noteCount} · Todos: {todoCount}</div>
+    <div class="priority-counts" title="Visible todos by priority">
+      {#each priorityCounts as item}
+        <span>{priorityBadgeLabel(item.priority)} {item.count}</span>
+      {/each}
+    </div>
     {#if showOpenTableButton}
       <button class="mode-toggle" on:click={onOpenTableView}>Table</button>
     {/if}
@@ -235,6 +270,16 @@
     flex: 0 0 auto;
   }
 
+  .tag-filter {
+    max-width: 180px;
+    height: 30px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--checklist-listItemBorderRadius);
+    background: var(--background-primary);
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
   .date-tabs {
     display: inline-flex;
     align-items: center;
@@ -318,6 +363,26 @@
     color: var(--text-muted);
     font-size: 12px;
     white-space: nowrap;
+  }
+
+  .priority-counts {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    border-radius: var(--checklist-listItemBorderRadius);
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .priority-counts > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .popover {

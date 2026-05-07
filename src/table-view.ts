@@ -5,6 +5,7 @@ import App from './svelte/App.svelte'
 import {
   groupTodos,
   hideTodoItem,
+  moveTodoItemToToday,
   parseTodos,
   setTodoItemChecked,
   setTodoItemPriority,
@@ -21,8 +22,10 @@ export default class TodoTableView extends ItemView {
   private groupedItems: TodoGroup[] = []
   private filteredItems: TodoItem[] = []
   private itemsByFile = new Map<string, TodoItem[]>()
+  private usedTags: string[] = []
+  private selectedUsedTag = ''
   private searchTerm = ''
-  private dateFilter: DateFilter = 'all'
+  private dateFilter: DateFilter = 'last14'
   private isLoading = false
 
   constructor(
@@ -127,6 +130,8 @@ export default class TodoTableView extends ItemView {
       excludedFolderPaths: this.plugin.getSettingValue('excludedFolderPaths'),
       hiddenPriorities: this.plugin.getSettingValue('_hiddenPriorities'),
       dateFilter: this.dateFilter,
+      usedTags: this.usedTags,
+      selectedUsedTag: this.selectedUsedTag,
       isLoading: this.isLoading,
       updateSetting: (updates: Partial<TodoSettings>) =>
         this.plugin.updateSettings(updates),
@@ -166,6 +171,16 @@ export default class TodoTableView extends ItemView {
           expectedOriginalText,
         )
         if (!success) rollback()
+      },
+      onMoveToToday: async (item: TodoItem) => {
+        const expectedOriginalText = item.originalText
+        const rollback = this.applyOptimisticMoveToToday(item)
+        const result = await moveTodoItemToToday(
+          item,
+          this.app,
+          expectedOriginalText,
+        )
+        if (!result) rollback()
       },
       onTogglePin: async (path: string) => {
         const pinned = this.plugin.getSettingValue('pinnedFilePaths')
@@ -216,6 +231,11 @@ export default class TodoTableView extends ItemView {
         this.groupItems()
         this.renderView()
       },
+      onUsedTagFilterChange: (tag: string) => {
+        this.selectedUsedTag = tag
+        this.groupItems()
+        this.renderView()
+      },
     }
   }
 
@@ -242,7 +262,7 @@ export default class TodoTableView extends ItemView {
     const excludedFolders = this.plugin.getSettingValue('excludedFolderPaths')
     const hiddenPriorities = this.plugin.getSettingValue('_hiddenPriorities')
     const viewOnlyOpen = this.plugin.getSettingValue('showOnlyActiveFile')
-    this.filteredItems = flattenedItems.filter(item => {
+    const baseFilteredItems = flattenedItems.filter(item => {
       if (ignoredFiles.includes(item.filePath)) return false
       if (
         excludedFolders.some(folder =>
@@ -256,8 +276,20 @@ export default class TodoTableView extends ItemView {
       if (viewOnlyOpen && (!openFile || item.filePath !== openFile.path)) return false
       return true
     })
-    const searchedItems = this.filteredItems.filter(e =>
-      e.originalText.toLowerCase().includes(this.searchTerm.toLowerCase()),
+    this.usedTags = this.getUsedTags(baseFilteredItems)
+    if (this.selectedUsedTag && !this.usedTags.includes(this.selectedUsedTag))
+      this.selectedUsedTag = ''
+    this.filteredItems = this.selectedUsedTag
+      ? baseFilteredItems.filter(item =>
+          this.getItemTags(item).includes(this.selectedUsedTag),
+        )
+      : baseFilteredItems
+    const searchTerm = this.searchTerm.toLowerCase()
+    const searchedItems = this.filteredItems.filter(item =>
+      [item.originalText, item.filePath]
+        .join(' ')
+        .toLowerCase()
+        .includes(searchTerm),
     )
     this.filteredItems = searchedItems
     this.groupedItems = groupTodos(
@@ -270,6 +302,7 @@ export default class TodoTableView extends ItemView {
     )
     this.sortPinnedGroups()
     this.filteredItems = this.groupedItems.flatMap(group => group.todos)
+    this.sortTableItemsByPriority()
   }
 
   private sortPinnedGroups() {
@@ -287,10 +320,57 @@ export default class TodoTableView extends ItemView {
     this._app.$set(this.props())
   }
 
+  private sortTableItemsByPriority() {
+    const priorityRank: Record<Priority, number> = {
+      highest: 0,
+      high: 1,
+      medium: 2,
+      none: 3,
+      low: 4,
+      lowest: 5,
+    }
+    this.filteredItems.sort((a, b) => {
+      const rankDiff = priorityRank[a.priority] - priorityRank[b.priority]
+      if (rankDiff !== 0) return rankDiff
+      return b.displayDateTs - a.displayDateTs
+    })
+  }
+
   private itemMatchesDateFilter(item: TodoItem) {
     if (this.dateFilter === 'all') return true
-    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000
-    return item.fileModifiedTs >= Date.now() - sixtyDaysMs
+    if (!Number.isFinite(item.displayDateTs)) return false
+    if (this.dateFilter === 'today') {
+      const start = new Date()
+      start.setHours(0, 0, 0, 0)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 1)
+      return item.displayDateTs >= start.getTime() && item.displayDateTs < end.getTime()
+    }
+    const days = this.dateFilterToDays()
+    const cutoff = new Date()
+    cutoff.setHours(0, 0, 0, 0)
+    cutoff.setDate(cutoff.getDate() - days)
+    return item.displayDateTs >= cutoff.getTime()
+  }
+
+  private dateFilterToDays() {
+    if (this.dateFilter === 'last7') return 7
+    if (this.dateFilter === 'last14') return 14
+    if (this.dateFilter === 'last30') return 30
+    return 60
+  }
+
+  private getUsedTags(items: TodoItem[]) {
+    return Array.from(
+      new Set(items.flatMap(item => this.getItemTags(item)).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b))
+  }
+
+  private getItemTags(item: TodoItem) {
+    const tags = item.originalText.match(/#[\p{L}\p{N}_/-]+/gu) ?? []
+    if (item.mainTag)
+      tags.push(`#${item.mainTag}${item.subTag ? `/${item.subTag}` : ''}`)
+    return Array.from(new Set(tags))
   }
 
   private applyOptimisticPriority(item: TodoItem, priority: Priority) {
@@ -366,6 +446,39 @@ export default class TodoTableView extends ItemView {
     }
   }
 
+  private applyOptimisticMoveToToday(item: TodoItem) {
+    const oldItemsByFile = new Map(this.itemsByFile)
+    const oldFilePath = item.filePath
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayPath = `${this.formatLocalDate(today)}.md`
+    const movedItem = {
+      ...item,
+      filePath: todayPath,
+      fileName: todayPath,
+      fileLabel: this.formatLocalDate(today),
+      displayDateTs: today.getTime(),
+    }
+    this.itemsByFile.set(
+      oldFilePath,
+      (this.itemsByFile.get(oldFilePath) ?? []).filter(
+        candidate =>
+          candidate.filePath !== item.filePath || candidate.line !== item.line,
+      ),
+    )
+    this.itemsByFile.set(todayPath, [
+      ...(this.itemsByFile.get(todayPath) ?? []),
+      movedItem,
+    ])
+    this.groupItems()
+    this.renderView()
+    return () => {
+      this.itemsByFile = oldItemsByFile
+      this.groupItems()
+      this.renderView()
+    }
+  }
+
   private applyOptimisticHideFile(path: string) {
     const oldItems = this.itemsByFile.get(path) ?? []
     this.itemsByFile.set(path, [])
@@ -417,6 +530,13 @@ export default class TodoTableView extends ItemView {
 
   private normalizeFolderPath(path: string) {
     return path.trim().replace(/^\/+|\/+$/g, '')
+  }
+
+  private formatLocalDate(date: Date) {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   private withDoneDate(text: string, checked: boolean) {

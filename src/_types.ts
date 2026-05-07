@@ -8,6 +8,7 @@ export type TodoItem = {
   fileLabel: string
   fileCreatedTs: number
   fileModifiedTs: number
+  displayDateTs: number
   mainTag?: string
   subTag?: string
   line: number
@@ -58,7 +59,13 @@ export type SortDirection = 'new->old' | 'old->new' | 'a->z' | 'z->a'
 export type LookAndFeel = 'compact' | 'classic'
 export type ViewMode = 'list' | 'table'
 export type Priority = 'highest' | 'high' | 'medium' | 'none' | 'low' | 'lowest'
-export type DateFilter = 'last60' | 'all'
+export type DateFilter =
+  | 'today'
+  | 'last7'
+  | 'last14'
+  | 'last30'
+  | 'last60'
+  | 'all'
 
 export type Icon = 'chevron' | 'settings'
 

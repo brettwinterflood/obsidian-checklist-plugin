@@ -20,8 +20,10 @@ export default class TodoListView extends ItemView {
   private groupedItems: TodoGroup[] = []
   private filteredItems: TodoItem[] = []
   private itemsByFile = new Map<string, TodoItem[]>()
+  private usedTags: string[] = []
+  private selectedUsedTag = ''
   private searchTerm = ''
-  private dateFilter: DateFilter = 'all'
+  private dateFilter: DateFilter = 'last14'
   private isLoading = false
 
   constructor(
@@ -126,6 +128,8 @@ export default class TodoListView extends ItemView {
       excludedFolderPaths: this.plugin.getSettingValue('excludedFolderPaths'),
       hiddenPriorities: this.plugin.getSettingValue('_hiddenPriorities'),
       dateFilter: this.dateFilter,
+      usedTags: this.usedTags,
+      selectedUsedTag: this.selectedUsedTag,
       isLoading: this.isLoading,
       updateSetting: (updates: Partial<TodoSettings>) =>
         this.plugin.updateSettings(updates),
@@ -166,6 +170,7 @@ export default class TodoListView extends ItemView {
         )
         if (!success) rollback()
       },
+      onMoveToToday: async () => undefined,
       onTogglePin: async (path: string) => {
         const pinned = this.plugin.getSettingValue('pinnedFilePaths')
         const next = pinned.includes(path)
@@ -215,6 +220,11 @@ export default class TodoListView extends ItemView {
         this.groupItems()
         this.renderView()
       },
+      onUsedTagFilterChange: (tag: string) => {
+        this.selectedUsedTag = tag
+        this.groupItems()
+        this.renderView()
+      },
     }
   }
 
@@ -241,7 +251,7 @@ export default class TodoListView extends ItemView {
     const excludedFolders = this.plugin.getSettingValue('excludedFolderPaths')
     const hiddenPriorities = this.plugin.getSettingValue('_hiddenPriorities')
     const viewOnlyOpen = this.plugin.getSettingValue('showOnlyActiveFile')
-    this.filteredItems = flattenedItems.filter(item => {
+    const baseFilteredItems = flattenedItems.filter(item => {
       if (ignoredFiles.includes(item.filePath)) return false
       if (
         excludedFolders.some(folder =>
@@ -255,8 +265,20 @@ export default class TodoListView extends ItemView {
       if (viewOnlyOpen && (!openFile || item.filePath !== openFile.path)) return false
       return true
     })
-    const searchedItems = this.filteredItems.filter(e =>
-      e.originalText.toLowerCase().includes(this.searchTerm.toLowerCase()),
+    this.usedTags = this.getUsedTags(baseFilteredItems)
+    if (this.selectedUsedTag && !this.usedTags.includes(this.selectedUsedTag))
+      this.selectedUsedTag = ''
+    this.filteredItems = this.selectedUsedTag
+      ? baseFilteredItems.filter(item =>
+          this.getItemTags(item).includes(this.selectedUsedTag),
+        )
+      : baseFilteredItems
+    const searchTerm = this.searchTerm.toLowerCase()
+    const searchedItems = this.filteredItems.filter(item =>
+      [item.originalText, item.filePath]
+        .join(' ')
+        .toLowerCase()
+        .includes(searchTerm),
     )
     this.filteredItems = searchedItems
     this.groupedItems = groupTodos(
@@ -288,8 +310,39 @@ export default class TodoListView extends ItemView {
 
   private itemMatchesDateFilter(item: TodoItem) {
     if (this.dateFilter === 'all') return true
-    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000
-    return item.fileModifiedTs >= Date.now() - sixtyDaysMs
+    if (!Number.isFinite(item.displayDateTs)) return false
+    if (this.dateFilter === 'today') {
+      const start = new Date()
+      start.setHours(0, 0, 0, 0)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 1)
+      return item.displayDateTs >= start.getTime() && item.displayDateTs < end.getTime()
+    }
+    const days = this.dateFilterToDays()
+    const cutoff = new Date()
+    cutoff.setHours(0, 0, 0, 0)
+    cutoff.setDate(cutoff.getDate() - days)
+    return item.displayDateTs >= cutoff.getTime()
+  }
+
+  private dateFilterToDays() {
+    if (this.dateFilter === 'last7') return 7
+    if (this.dateFilter === 'last14') return 14
+    if (this.dateFilter === 'last30') return 30
+    return 60
+  }
+
+  private getUsedTags(items: TodoItem[]) {
+    return Array.from(
+      new Set(items.flatMap(item => this.getItemTags(item)).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b))
+  }
+
+  private getItemTags(item: TodoItem) {
+    const tags = item.originalText.match(/#[\p{L}\p{N}_/-]+/gu) ?? []
+    if (item.mainTag)
+      tags.push(`#${item.mainTag}${item.subTag ? `/${item.subTag}` : ''}`)
+    return Array.from(new Set(tags))
   }
 
   private applyOptimisticPriority(item: TodoItem, priority: Priority) {
