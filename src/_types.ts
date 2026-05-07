@@ -2,10 +2,12 @@ import type {CachedMetadata, TagCache, TFile} from 'obsidian'
 
 export type TodoItem = {
   checked: boolean
+  priority: Priority
   filePath: string
   fileName: string
   fileLabel: string
   fileCreatedTs: number
+  fileModifiedTs: number
   mainTag?: string
   subTag?: string
   line: number
@@ -13,6 +15,7 @@ export type TodoItem = {
   fileInfo: FileInfo
   originalText: string
   rawHTML: string
+  todoText: string
 }
 
 type BaseGroup = {
@@ -53,6 +56,9 @@ export type LinkMeta = {filePath: string; linkName: string}
 export type GroupByType = 'page' | 'tag'
 export type SortDirection = 'new->old' | 'old->new' | 'a->z' | 'z->a'
 export type LookAndFeel = 'compact' | 'classic'
+export type ViewMode = 'list' | 'table'
+export type Priority = 'highest' | 'high' | 'medium' | 'none' | 'low' | 'lowest'
+export type DateFilter = 'last60' | 'all'
 
 export type Icon = 'chevron' | 'settings'
 

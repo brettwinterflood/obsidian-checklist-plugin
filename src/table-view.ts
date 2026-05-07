@@ -1,6 +1,6 @@
 import {ItemView, WorkspaceLeaf} from 'obsidian'
 
-import {TODO_VIEW_TYPE} from './constants'
+import {TODO_TABLE_VIEW_TYPE} from './constants'
 import App from './svelte/App.svelte'
 import {
   groupTodos,
@@ -14,7 +14,8 @@ import {
 import type {TodoSettings} from './settings'
 import type TodoPlugin from './main'
 import type {DateFilter, Priority, TodoGroup, TodoItem} from './_types'
-export default class TodoListView extends ItemView {
+
+export default class TodoTableView extends ItemView {
   private _app: App
   private lastRerender = 0
   private groupedItems: TodoGroup[] = []
@@ -32,15 +33,15 @@ export default class TodoListView extends ItemView {
   }
 
   getViewType(): string {
-    return TODO_VIEW_TYPE
+    return TODO_TABLE_VIEW_TYPE
   }
 
   getDisplayText(): string {
-    return 'Todo List'
+    return 'Todo Table'
   }
 
   getIcon(): string {
-    return 'checkmark'
+    return 'table'
   }
 
   get todoTagArray() {
@@ -78,7 +79,7 @@ export default class TodoListView extends ItemView {
       this.app.workspace.on('active-leaf-change', async () => {
         if (!this.plugin.getSettingValue('showOnlyActiveFile')) return
         await this.refresh()
-      })
+      }),
     )
     this.registerEvent(
       this.app.vault.on('delete', file => this.deleteFile(file.path)),
@@ -120,7 +121,7 @@ export default class TodoListView extends ItemView {
       app: this.app,
       todoGroups: this.groupedItems,
       tableItems: this.filteredItems,
-      isTableView: false,
+      isTableView: true,
       pinnedFilePaths: this.plugin.getSettingValue('pinnedFilePaths'),
       ignoredFilePaths: this.plugin.getSettingValue('ignoredFilePaths'),
       excludedFolderPaths: this.plugin.getSettingValue('excludedFolderPaths'),
@@ -129,7 +130,7 @@ export default class TodoListView extends ItemView {
       isLoading: this.isLoading,
       updateSetting: (updates: Partial<TodoSettings>) =>
         this.plugin.updateSettings(updates),
-      onOpenTableView: () => this.plugin.openTableView(),
+      onOpenTableView: () => undefined,
       onHideFile: async (path: string) => {
         const rollback = this.applyOptimisticHideFile(path)
         const ignored = this.plugin.getSettingValue('ignoredFilePaths')

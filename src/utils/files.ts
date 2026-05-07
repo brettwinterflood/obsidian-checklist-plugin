@@ -14,7 +14,7 @@ export const navToFile = async (
   const mod = Keymap.isModEvent(ev)
   const leaf = app.workspace.getLeaf(mod)
   await leaf.openFile(file)
-  if (line) {
+  if (line !== undefined) {
     app.workspace.getActiveViewOfType(MarkdownView).editor.setCursor(line)
   }
 }

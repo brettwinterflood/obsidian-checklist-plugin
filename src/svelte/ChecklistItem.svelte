@@ -8,11 +8,14 @@
   export let item: TodoItem
   export let lookAndFeel: LookAndFeel
   export let app: App
+  export let onToggleChecked: (item: TodoItem) => Promise<void> = async item => {
+    await toggleTodoItem(item, app)
+  }
 
   let contentDiv: HTMLDivElement
 
   const toggleItem = async (item: TodoItem) => {
-    toggleTodoItem(item, app)
+    await onToggleChecked(item)
   }
 
   const handleClick = (ev: MouseEvent, item?: TodoItem) => {

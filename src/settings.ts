@@ -1,7 +1,19 @@
-import {App, PluginSettingTab, Setting} from 'obsidian'
+import {
+  App,
+  FuzzySuggestModal,
+  PluginSettingTab,
+  Setting,
+  TFile,
+  TFolder,
+} from 'obsidian'
 
 import type TodoPlugin from './main'
-import type {GroupByType, LookAndFeel, SortDirection} from './_types'
+import type {
+  GroupByType,
+  LookAndFeel,
+  Priority,
+  SortDirection,
+} from './_types'
 
 export interface TodoSettings {
   todoPageName: string
@@ -16,8 +28,12 @@ export interface TodoSettings {
   sortDirectionSubGroups: SortDirection
   includeFiles: string
   lookAndFeel: LookAndFeel
+  pinnedFilePaths: string[]
+  ignoredFilePaths: string[]
+  excludedFolderPaths: string[]
   _collapsedSections: string[]
   _hiddenTags: string[]
+  _hiddenPriorities: Priority[]
 }
 
 export const DEFAULT_SETTINGS: TodoSettings = {
@@ -33,8 +49,56 @@ export const DEFAULT_SETTINGS: TodoSettings = {
   sortDirectionSubGroups: 'new->old',
   includeFiles: '',
   lookAndFeel: 'classic',
+  pinnedFilePaths: ['TODO.md'],
+  ignoredFilePaths: [],
+  excludedFolderPaths: [],
   _collapsedSections: [],
   _hiddenTags: [],
+  _hiddenPriorities: [],
+}
+
+class FileSuggestModal extends FuzzySuggestModal<TFile> {
+  constructor(
+    app: App,
+    private onChoosePath: (path: string) => Promise<void>,
+  ) {
+    super(app)
+  }
+
+  getItems(): TFile[] {
+    return this.app.vault.getMarkdownFiles()
+  }
+
+  getItemText(item: TFile): string {
+    return item.path
+  }
+
+  onChooseItem(item: TFile): void {
+    this.onChoosePath(item.path)
+  }
+}
+
+class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
+  constructor(
+    app: App,
+    private onChoosePath: (path: string) => Promise<void>,
+  ) {
+    super(app)
+  }
+
+  getItems(): TFolder[] {
+    return this.app.vault
+      .getAllLoadedFiles()
+      .filter((entry): entry is TFolder => entry instanceof TFolder)
+  }
+
+  getItemText(item: TFolder): string {
+    return item.path
+  }
+
+  onChooseItem(item: TFolder): void {
+    this.onChoosePath(item.path.replace(/\/+$/, ''))
+  }
 }
 
 export class TodoSettingTab extends PluginSettingTab {
@@ -197,6 +261,82 @@ export class TodoSettingTab extends PluginSettingTab {
         })
       })
 
+    this.buildPathListSetting({
+      title: 'Pinned notes',
+      description:
+        'Pinned notes always sort before unpinned notes when grouped by page.',
+      values: this.plugin.getSettingValue('pinnedFilePaths'),
+      emptyText: 'No pinned notes',
+      onAdd: () =>
+        new FileSuggestModal(this.app, async path => {
+          const current = this.plugin.getSettingValue('pinnedFilePaths')
+          if (!current.includes(path)) {
+            await this.plugin.updateSettings({
+              pinnedFilePaths: [...current, path],
+            })
+            this.display()
+          }
+        }).open(),
+      onRemove: async value => {
+        await this.plugin.updateSettings({
+          pinnedFilePaths: this.plugin
+            .getSettingValue('pinnedFilePaths')
+            .filter(path => path !== value),
+        })
+        this.display()
+      },
+    })
+
+    this.buildPathListSetting({
+      title: 'Ignored notes',
+      description: 'Ignored notes are hidden from both list and table views.',
+      values: this.plugin.getSettingValue('ignoredFilePaths'),
+      emptyText: 'No ignored notes',
+      onAdd: () =>
+        new FileSuggestModal(this.app, async path => {
+          const current = this.plugin.getSettingValue('ignoredFilePaths')
+          if (!current.includes(path)) {
+            await this.plugin.updateSettings({
+              ignoredFilePaths: [...current, path],
+            })
+            this.display()
+          }
+        }).open(),
+      onRemove: async value => {
+        await this.plugin.updateSettings({
+          ignoredFilePaths: this.plugin
+            .getSettingValue('ignoredFilePaths')
+            .filter(path => path !== value),
+        })
+        this.display()
+      },
+    })
+
+    this.buildPathListSetting({
+      title: 'Excluded folders',
+      description: 'Notes in excluded folders are hidden from all views.',
+      values: this.plugin.getSettingValue('excludedFolderPaths'),
+      emptyText: 'No excluded folders',
+      onAdd: () =>
+        new FolderSuggestModal(this.app, async path => {
+          const current = this.plugin.getSettingValue('excludedFolderPaths')
+          if (!current.includes(path)) {
+            await this.plugin.updateSettings({
+              excludedFolderPaths: [...current, path],
+            })
+            this.display()
+          }
+        }).open(),
+      onRemove: async value => {
+        await this.plugin.updateSettings({
+          excludedFolderPaths: this.plugin
+            .getSettingValue('excludedFolderPaths')
+            .filter(path => path !== value),
+        })
+        this.display()
+      },
+    })
+
     /** ADVANCED */
 
     new Setting(this.containerEl).setName('Advanced')
@@ -228,5 +368,42 @@ export class TodoSettingTab extends PluginSettingTab {
       .setDesc(
         'It\'s recommended to leave this on unless you are expereince performance issues due to a large vault. You can then reload manually using the "Checklist: refresh" command',
       )
+  }
+
+  private buildPathListSetting({
+    title,
+    description,
+    values,
+    emptyText,
+    onAdd,
+    onRemove,
+  }: {
+    title: string
+    description: string
+    values: string[]
+    emptyText: string
+    onAdd: () => void
+    onRemove: (value: string) => Promise<void>
+  }) {
+    new Setting(this.containerEl)
+      .setName(title)
+      .setDesc(description)
+      .addButton(button => {
+        button.setButtonText('Add')
+        button.onClick(onAdd)
+      })
+
+    const listEl = this.containerEl.createDiv({cls: 'checklist-setting-list'})
+    if (!values.length) {
+      listEl.createDiv({cls: 'checklist-setting-empty', text: emptyText})
+      return
+    }
+
+    for (const value of values) {
+      new Setting(listEl).setName(value).addButton(button => {
+        button.setButtonText('Remove')
+        button.onClick(() => onRemove(value))
+      })
+    }
   }
 }

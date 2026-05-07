@@ -18,8 +18,11 @@ import {
   retrieveTag,
   lineIsValidTodo,
   mapLinkMeta,
+  parsePriority,
+  PRIORITY_EMOJI,
   removeTagFromText,
   setLineTo,
+  stripTrailingPriority,
   todoLineIsChecked,
 } from './helpers'
 
@@ -32,6 +35,7 @@ import type {
   Vault,
 } from 'obsidian'
 import type {TodoItem, TagMeta, FileInfo} from 'src/_types'
+import type {Priority} from 'src/_types'
 
 /**
  * Finds all of the {@link TodoItem todos} in the {@link TFile files} that have been updated since the last re-render.
@@ -111,18 +115,82 @@ export const parseTodos = async (
 }
 
 export const toggleTodoItem = async (item: TodoItem, app: App) => {
+  return setTodoItemChecked(item, !item.checked, app)
+}
+
+export const setTodoItemChecked = async (
+  item: TodoItem,
+  checked: boolean,
+  app: App,
+  expectedOriginalText = item.originalText,
+): Promise<boolean> => {
   const file = getFileFromPath(app.vault, item.filePath)
-  if (!file) return
+  if (!file) return false
   const currentFileContents = await app.vault.read(file)
   const currentFileLines = getAllLinesFromFile(currentFileContents)
-  if (!currentFileLines[item.line].includes(item.originalText)) return
+  if (!currentFileLines[item.line].includes(expectedOriginalText)) return false
   const newData = setTodoStatusAtLineTo(
     currentFileLines,
     item.line,
-    !item.checked,
+    checked,
   )
-  app.vault.modify(file, newData)
-  item.checked = !item.checked
+  await app.vault.modify(file, newData)
+  item.checked = checked
+  return true
+}
+
+export const setTodoItemPriority = async (
+  item: TodoItem,
+  priority: Priority,
+  app: App,
+  expectedOriginalText = item.originalText,
+): Promise<boolean> => {
+  const file = getFileFromPath(app.vault, item.filePath)
+  if (!file) return false
+  const currentFileContents = await app.vault.read(file)
+  const currentFileLines = getAllLinesFromFile(currentFileContents)
+  const targetLine = currentFileLines[item.line]
+  if (!targetLine || !targetLine.includes(expectedOriginalText)) return false
+  const updated = setTodoPriorityAtLine(currentFileLines, item.line, priority)
+  await app.vault.modify(file, updated)
+  item.priority = priority
+  return true
+}
+
+export const setTodoItemText = async (
+  item: TodoItem,
+  text: string,
+  app: App,
+  expectedOriginalText = item.originalText,
+): Promise<boolean> => {
+  const file = getFileFromPath(app.vault, item.filePath)
+  if (!file) return false
+  const currentFileContents = await app.vault.read(file)
+  const currentFileLines = getAllLinesFromFile(currentFileContents)
+  const targetLine = currentFileLines[item.line]
+  if (!targetLine || !targetLine.includes(expectedOriginalText)) return false
+  const updated = setTodoTextAtLine(currentFileLines, item.line, text.trim())
+  await app.vault.modify(file, updated)
+  item.todoText = text.trim()
+  item.originalText = text.trim()
+  item.priority = parsePriority(text)
+  return true
+}
+
+export const hideTodoItem = async (
+  item: TodoItem,
+  app: App,
+  expectedOriginalText = item.originalText,
+): Promise<boolean> => {
+  const file = getFileFromPath(app.vault, item.filePath)
+  if (!file) return false
+  const currentFileContents = await app.vault.read(file)
+  const currentFileLines = getAllLinesFromFile(currentFileContents)
+  const targetLine = currentFileLines[item.line]
+  if (!targetLine || !targetLine.includes(expectedOriginalText)) return false
+  const updated = hideTodoAtLine(currentFileLines, item.line)
+  await app.vault.modify(file, updated)
+  return true
 }
 
 const findAllTodosInFile = (file: FileInfo): TodoItem[] => {
@@ -198,6 +266,7 @@ const formTodo = (
   const rawText = extractTextFromTodoLine(line)
   const spacesIndented = getIndentationSpacesFromTodoLine(line)
   const tagStripped = removeTagFromText(rawText, tagMeta?.main)
+  const todoText = rawText
   const md = new MD()
     .use(commentPlugin)
     .use(linkPlugin(linkMap))
@@ -207,17 +276,59 @@ const formTodo = (
     mainTag: tagMeta?.main,
     subTag: tagMeta?.sub,
     checked: todoLineIsChecked(line),
+    priority: parsePriority(rawText),
     filePath: file.file.path,
     fileName: file.file.name,
     fileLabel: getFileLabelFromName(file.file.name),
     fileCreatedTs: file.file.stat.ctime,
+    fileModifiedTs: file.file.stat.mtime,
     rawHTML: md.render(tagStripped),
+    todoText,
     line: lineNum,
     spacesIndented,
     fileInfo: file,
     originalText: rawText,
   }
 }
+
+const setTodoPriorityAtLine = (
+  fileLines: string[],
+  line: number,
+  priority: Priority,
+) => {
+  const target = fileLines[line]
+  const match = target.match(/^((\s|\>)*([\-\*]|[0-9]+\.)\s\[[^\]]+\]\s{1,4})(.*)$/)
+  if (!match) return combineFileLines(fileLines)
+
+  const prefix = match[1]
+  const body = match[4]
+  const withoutPriority = stripTrailingPriority(body)
+  const priorityStr = priority === 'none' ? '' : ` ${PRIORITY_EMOJI[priority]}`
+  fileLines[line] = `${prefix}${withoutPriority}${priorityStr}`.trimEnd()
+  return combineFileLines(fileLines)
+}
+
+const setTodoTextAtLine = (fileLines: string[], line: number, text: string) => {
+  const target = fileLines[line]
+  const match = target.match(/^((\s|\>)*([\-\*]|[0-9]+\.)\s\[[^\]]+\]\s{1,4})(.*)$/)
+  if (!match) return combineFileLines(fileLines)
+
+  const prefix = match[1]
+  fileLines[line] = `${prefix}${text}`.trimEnd()
+  return combineFileLines(fileLines)
+}
+
+const hideTodoAtLine = (fileLines: string[], line: number) => {
+  const target = fileLines[line]
+  const match = target.match(/^((\s|\>)*([\-\*]|[0-9]+\.)\s)\[[^\]]+\]\s{1,4}(.*)$/)
+  if (!match) return combineFileLines(fileLines)
+
+  const prefix = match[1]
+  const body = match[4]
+  fileLines[line] = `${prefix}${body}`.trimEnd()
+  return combineFileLines(fileLines)
+}
+
 
 /** Returns [start, end] inclusive indices of the checklist block containing the given line. */
 const getChecklistBlockBounds = (

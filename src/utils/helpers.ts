@@ -3,6 +3,7 @@ import {CachedMetadata, parseFrontMatterTags, TFile, Vault} from 'obsidian'
 import {LOCAL_SORT_OPT} from '../constants'
 
 import type {SortDirection, TagMeta, LinkMeta, KeysOfType} from 'src/_types'
+import type {Priority} from 'src/_types'
 export const isMacOS = () => window.navigator.userAgent.includes('Macintosh')
 export const classifyString = (str: string) => {
   const sanitzedGroupName = (str ?? '').replace(/[^A-Za-z0-9]/g, '')
@@ -140,3 +141,36 @@ export const getFileFromPath = (vault: Vault, path: string) => {
   file = files.find(e => e.name === path)
   if (file instanceof TFile) return file
 }
+
+export const PRIORITY_EMOJI: Record<Priority, string> = {
+  highest: '🔺',
+  high: '⏫',
+  medium: '🔼',
+  none: '',
+  low: '🔽',
+  lowest: '⏬',
+}
+
+const PRIORITY_ORDER: Priority[] = [
+  'highest',
+  'high',
+  'medium',
+  'none',
+  'low',
+  'lowest',
+]
+
+const PRIORITY_EMOJI_REGEX = /\s*(🔺|⏫|🔼|🔽|⏬)\s*$/
+
+export const parsePriority = (text: string): Priority => {
+  const match = text.trimEnd().match(PRIORITY_EMOJI_REGEX)
+  if (!match) return 'none'
+  const found = PRIORITY_ORDER.find(p => PRIORITY_EMOJI[p] === match[1])
+  return found ?? 'none'
+}
+
+export const stripTrailingPriority = (text: string): string =>
+  text.replace(PRIORITY_EMOJI_REGEX, '').trimEnd()
+
+export const stripTrailingDoneDate = (text: string): string =>
+  text.replace(DONE_DATE_PATTERN, '').trimEnd()

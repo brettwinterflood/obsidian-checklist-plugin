@@ -49,3 +49,15 @@
   margin: initial;
   word-break: break-word;
 }
+
+.checklist-setting-list {
+  max-height: 160px;
+  overflow: auto;
+  margin-bottom: 16px;
+}
+
+.checklist-setting-empty {
+  color: var(--text-faint);
+  font-style: italic;
+  margin: 8px 0 16px;
+}
