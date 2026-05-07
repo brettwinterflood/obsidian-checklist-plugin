@@ -24,6 +24,7 @@ export default class TodoTableView extends ItemView {
   private itemsByFile = new Map<string, TodoItem[]>()
   private usedTags: string[] = []
   private selectedUsedTag = ''
+  private selectedPriority: Priority | '' = ''
   private searchTerm = ''
   private dateFilter: DateFilter = 'last14'
   private isLoading = false
@@ -95,11 +96,14 @@ export default class TodoTableView extends ItemView {
       this.lastRerender = 0
       this.itemsByFile.clear()
     }
-    this.isLoading = true
-    this.renderView()
+    const showLoading = all || (this.lastRerender === 0 && this.itemsByFile.size === 0)
+    if (showLoading) {
+      this.isLoading = true
+      this.renderView()
+    }
     await this.calculateAllItems()
     this.groupItems()
-    this.isLoading = false
+    if (showLoading) this.isLoading = false
     this.renderView()
     this.lastRerender = +new Date()
   }
@@ -132,6 +136,7 @@ export default class TodoTableView extends ItemView {
       dateFilter: this.dateFilter,
       usedTags: this.usedTags,
       selectedUsedTag: this.selectedUsedTag,
+      selectedPriority: this.selectedPriority,
       isLoading: this.isLoading,
       updateSetting: (updates: Partial<TodoSettings>) =>
         this.plugin.updateSettings(updates),
@@ -236,6 +241,11 @@ export default class TodoTableView extends ItemView {
         this.groupItems()
         this.renderView()
       },
+      onPriorityFilterChange: (priority: Priority | '') => {
+        this.selectedPriority = priority
+        this.groupItems()
+        this.renderView()
+      },
     }
   }
 
@@ -271,6 +281,7 @@ export default class TodoTableView extends ItemView {
       )
         return false
       if (hiddenPriorities.includes(item.priority)) return false
+      if (this.selectedPriority && item.priority !== this.selectedPriority) return false
       if (!this.plugin.getSettingValue('showChecked') && item.checked) return false
       if (!this.itemMatchesDateFilter(item)) return false
       if (viewOnlyOpen && (!openFile || item.filePath !== openFile.path)) return false
@@ -281,7 +292,7 @@ export default class TodoTableView extends ItemView {
       this.selectedUsedTag = ''
     this.filteredItems = this.selectedUsedTag
       ? baseFilteredItems.filter(item =>
-          this.getItemTags(item).includes(this.selectedUsedTag),
+          this.itemMatchesSelectedTag(item, this.selectedUsedTag),
         )
       : baseFilteredItems
     const searchTerm = this.searchTerm.toLowerCase()
@@ -371,6 +382,15 @@ export default class TodoTableView extends ItemView {
     if (item.mainTag)
       tags.push(`#${item.mainTag}${item.subTag ? `/${item.subTag}` : ''}`)
     return Array.from(new Set(tags))
+  }
+
+  private itemMatchesSelectedTag(item: TodoItem, selectedTag: string) {
+    if (this.getItemTags(item).includes(selectedTag)) return true
+    const plainTag = selectedTag.replace(/^#/, '').toLowerCase()
+    return [item.originalText, item.filePath]
+      .join(' ')
+      .toLowerCase()
+      .includes(plainTag)
   }
 
   private applyOptimisticPriority(item: TodoItem, priority: Priority) {

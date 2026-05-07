@@ -12,14 +12,15 @@
   export let excludedFolderPaths: string[]
   export let disableSearch: boolean
   export let showOpenTableButton: boolean = false
-  export let noteCount: number = 0
   export let todoCount: number = 0
   export let priorityCounts: Array<{ priority: Priority; count: number }> = []
+  export let selectedPriority: Priority | "" = ""
   export let dateFilter: DateFilter = "last14"
   export let usedTags: string[] = []
   export let selectedUsedTag: string = ""
   export let onTagStatusChange: (tag: string, status: boolean) => void
   export let onPriorityStatusChange: (priority: Priority, status: boolean) => void
+  export let onPriorityFilterChange: (priority: Priority | "") => void
   export let onDateFilterChange: (filter: DateFilter) => void
   export let onUsedTagFilterChange: (tag: string) => void
   export let onOpenTableView: () => void
@@ -52,7 +53,7 @@
     if (priority === "medium") return "🔼"
     if (priority === "low") return "🔽"
     if (priority === "lowest") return "⏬"
-    return "-"
+    return "⬜"
   }
 
   const handleUsedTagChange = (ev: Event) => {
@@ -107,11 +108,16 @@
         <option value={tag}>{tag}</option>
       {/each}
     </select>
-    <div class="count-pill" title="Visible notes and todos">Notes: {noteCount} · Todos: {todoCount}</div>
     <div class="priority-counts" title="Visible todos by priority">
       {#each priorityCounts as item}
-        <span>{priorityBadgeLabel(item.priority)} {item.count}</span>
+        <button
+          class:active={selectedPriority === item.priority}
+          on:click={() => onPriorityFilterChange(selectedPriority === item.priority ? "" : item.priority)}
+        >
+          {priorityBadgeLabel(item.priority)} {item.count}
+        </button>
       {/each}
+      <span class="total-count">({todoCount} total)</span>
     </div>
     {#if showOpenTableButton}
       <button class="mode-toggle" on:click={onOpenTableView}>Table</button>
@@ -352,19 +358,6 @@
     padding: 0 10px;
   }
 
-  .count-pill {
-    height: 100%;
-    display: inline-flex;
-    align-items: center;
-    padding: 0 10px;
-    border-radius: var(--checklist-listItemBorderRadius);
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    color: var(--text-muted);
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
   .priority-counts {
     min-height: 30px;
     display: inline-flex;
@@ -379,10 +372,29 @@
     white-space: nowrap;
   }
 
-  .priority-counts > span {
+  .priority-counts > button {
     display: inline-flex;
     align-items: center;
     gap: 2px;
+    width: initial;
+    height: 24px;
+    padding: 0 5px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+  }
+
+  .priority-counts > button:hover,
+  .priority-counts > button.active {
+    background: var(--background-secondary);
+    border-color: var(--background-modifier-border);
+    color: var(--text-normal);
+  }
+
+  .total-count {
+    color: var(--text-faint);
   }
 
   .popover {

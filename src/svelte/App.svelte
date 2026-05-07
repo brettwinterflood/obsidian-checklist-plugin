@@ -14,6 +14,7 @@
   export let dateFilter: DateFilter
   export let usedTags: string[]
   export let selectedUsedTag: string
+  export let selectedPriority: Priority | ""
   export let pinnedFilePaths: string[]
   export let ignoredFilePaths: string[]
   export let excludedFolderPaths: string[]
@@ -22,6 +23,7 @@
   export let onSearch: (str: string) => void
   export let onDateFilterChange: (filter: DateFilter) => void
   export let onUsedTagFilterChange: (tag: string) => void
+  export let onPriorityFilterChange: (priority: Priority | "") => void
   export let onOpenTableView: () => void
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
@@ -68,7 +70,6 @@
   $: checklistFilePaths = Array.from(new Set(tableItems.map((item) => item.filePath))).sort((a, b) =>
     a.localeCompare(b),
   )
-  $: visibleNoteCount = checklistFilePaths.length
   $: visibleTodoCount = tableItems.length
   $: priorityCounts = priorities.map((priority) => ({
     priority,
@@ -85,9 +86,9 @@
 <div class="checklist-plugin-main markdown-preview-view">
     <Header
       disableSearch={todoGroups.length === 0}
-      noteCount={visibleNoteCount}
       todoCount={visibleTodoCount}
       {priorityCounts}
+      {selectedPriority}
       {dateFilter}
       {usedTags}
       {selectedUsedTag}
@@ -101,6 +102,7 @@
       {excludedFolderPaths}
       onTagStatusChange={updateTagStatus}
       onPriorityStatusChange={updatePriorityStatus}
+      onPriorityFilterChange={onPriorityFilterChange}
       onDateFilterChange={onDateFilterChange}
       onUsedTagFilterChange={onUsedTagFilterChange}
       {onOpenTableView}

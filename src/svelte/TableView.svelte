@@ -13,12 +13,14 @@
   export let onHideTodo: (item: TodoItem) => Promise<void>
   export let onMoveToToday: (item: TodoItem) => Promise<void>
   let groupByDay = false
+  let sortColumn: "date" | "daysAgo" | "" = ""
+  let sortDirection: "asc" | "desc" | "" = ""
 
   const priorityOptions: Array<{ value: Priority; label: string }> = [
     { value: "highest", label: "🔺" },
     { value: "high", label: "⏫" },
     { value: "medium", label: "🔼" },
-    { value: "none", label: "-" },
+    { value: "none", label: "⬜" },
     { value: "low", label: "🔽" },
     { value: "lowest", label: "⏬" },
   ]
@@ -54,7 +56,32 @@
     return Math.max(0, Math.floor((today.getTime() - itemDate.getTime()) / 86400000))
   }
 
+  const cycleSort = (column: "date" | "daysAgo") => {
+    if (sortColumn !== column) {
+      sortColumn = column
+      sortDirection = "asc"
+      return
+    }
+    if (sortDirection === "asc") {
+      sortDirection = "desc"
+      return
+    }
+    sortColumn = ""
+    sortDirection = ""
+  }
+
+  const sortIcon = (column: "date" | "daysAgo") => {
+    if (sortColumn !== column) return "⇅"
+    return sortDirection === "asc" ? "▲" : "▼"
+  }
+
   $: sortedItems = [...items].sort((a, b) => {
+    if (sortColumn) {
+      const aValue = sortColumn === "daysAgo" ? daysAgo(a.displayDateTs) : a.displayDateTs
+      const bValue = sortColumn === "daysAgo" ? daysAgo(b.displayDateTs) : b.displayDateTs
+      const diff = aValue - bValue
+      if (diff !== 0) return sortDirection === "asc" ? diff : -diff
+    }
     if (groupByDay) {
       const dateDiff = b.displayDateTs - a.displayDateTs
       if (dateDiff !== 0) return dateDiff
@@ -80,8 +107,26 @@
     <tr>
       <th>TODO</th>
       <th>Note</th>
-      <th>Date</th>
-      <th>Days ago</th>
+      <th>
+        <button
+          class:active={sortColumn === "date"}
+          class="sort-header"
+          title="Sort by date"
+          on:click={() => cycleSort("date")}
+        >
+          <span>Date</span><span class="sort-icon">{sortIcon("date")}</span>
+        </button>
+      </th>
+      <th>
+        <button
+          class:active={sortColumn === "daysAgo"}
+          class="sort-header"
+          title="Sort by days ago"
+          on:click={() => cycleSort("daysAgo")}
+        >
+          <span>Days ago</span><span class="sort-icon">{sortIcon("daysAgo")}</span>
+        </button>
+      </th>
       <th>Actions</th>
     </tr>
   </thead>
@@ -223,6 +268,40 @@
     top: -8px;
     height: 8px;
     background: var(--background-primary);
+  }
+
+  .sort-header {
+    width: initial;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .sort-header:hover {
+    color: var(--text-normal);
+  }
+
+  .sort-header.active {
+    color: var(--text-normal);
+  }
+
+  .sort-icon {
+    color: var(--text-faint);
+    font-size: 13px;
+    min-width: 14px;
+    text-align: center;
+  }
+
+  .sort-header.active .sort-icon {
+    color: var(--text-accent);
+    font-weight: 700;
   }
 
   .todo-table tbody tr:hover td {
