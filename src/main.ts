@@ -1,4 +1,4 @@
-import {Plugin} from 'obsidian'
+import {Notice, Plugin} from 'obsidian'
 
 import {TODO_TABLE_VIEW_TYPE, TODO_VIEW_TYPE} from './constants'
 import {DEFAULT_SETTINGS, TodoSettings, TodoSettingTab} from './settings'
@@ -17,6 +17,10 @@ export default class TodoPlugin extends Plugin {
   get tableView() {
     const view = this.app.workspace.getLeavesOfType(TODO_TABLE_VIEW_TYPE)[0]?.view
     return view instanceof TodoTableView ? view : undefined
+  }
+
+  showCompletedToast(taskName: string) {
+    new Notice(`✅ completed ${taskName}`, 5000)
   }
 
   async onload() {

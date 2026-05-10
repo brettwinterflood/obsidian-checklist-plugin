@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { DateFilter, Priority } from "src/_types"
+  import { displayTag, tagEmojiFor } from "src/utils/helpers"
   import Icon from "./Icon.svelte"
   import { clickOutside } from "./clickOutside.directive"
 
@@ -76,48 +77,6 @@
     if (priority === "none") return "transparent"
     if (priority === "low") return "rgba(221, 245, 226, 0.5)"
     return "rgba(214, 246, 241, 0.46)"
-  }
-
-  const displayTag = (tag: string) => tag.replace(/^#/, "")
-
-  const tagEmoji = (tag: string) => {
-    const value = displayTag(tag).toLowerCase()
-    const rules: Array<{ match: RegExp; emoji: string }> = [
-      { match: /(shopping|buy|purchase)/, emoji: "🛒" },
-      { match: /drip/, emoji: "🧥" },
-      { match: /(books|reading)/, emoji: "📖" },
-      { match: /dj/, emoji: "👨🏻‍🎤" },
-      { match: /production/, emoji: "🎧" },
-      { match: /visuals/, emoji: "🖼️" },
-      { match: /(music|release)/, emoji: "🎵" },
-      { match: /travel/, emoji: "🗺️" },
-      { match: /living-location/, emoji: "🏠" },
-      { match: /career/, emoji: "💼" },
-      { match: /(business|entrepreneurship|project)/, emoji: "🛠️" },
-      { match: /finance/, emoji: "💰" },
-      { match: /marketing/, emoji: "📈" },
-      { match: /(fitness|health)/, emoji: "💪" },
-      { match: /(dating|girls)/, emoji: "👱🏻‍♀️" },
-      { match: /(art|creative)/, emoji: "🎨" },
-      { match: /(mindset|philosophy|religion|politics)/, emoji: "🧠" },
-      { match: /\blife\b/, emoji: "⭐" },
-      { match: /(alert|warning|pay attention)/, emoji: "🚨" },
-      { match: /asia/, emoji: "🇭🇰🇸🇬🇹🇼🇹🇭🐉🗾🧧" },
-      { match: /(definition|what)/, emoji: "❓" },
-      { match: /\bwhy\b/, emoji: "🤷" },
-      { match: /shipping/, emoji: "🚢" },
-      { match: /(socialising|networking|meeting people)/, emoji: "🗣️" },
-      { match: /(coding|backend)/, emoji: "📟" },
-      { match: /(in progress|progress)/, emoji: "🚧" },
-      { match: /projects in progress/, emoji: "📂" },
-      { match: /(occult|magic|spells|affirmations)/, emoji: "🔮" },
-      { match: /(dress|form)/, emoji: "🧥" },
-      { match: /family/, emoji: "🏡" },
-      { match: /(goal|target|objective)/, emoji: "🎯" },
-      { match: /(next up|future|deferred)/, emoji: "🔜" },
-      { match: /(learning|growth)/, emoji: "🌱" },
-    ]
-    return rules.find((rule) => rule.match.test(value))?.emoji ?? ""
   }
 
   const rangeFromIndexes = (start: number, end: number) => {
@@ -233,8 +192,8 @@
             class="tag-filter-chip"
             on:click={() => onUsedTagFilterChange(selectedUsedTag === item.tag ? "" : item.tag)}
           >
-            {#if tagEmoji(item.tag)}
-              <span class="tag-prefix">{tagEmoji(item.tag)}</span>
+            {#if tagEmojiFor(item.tag)}
+              <span class="tag-prefix">{tagEmojiFor(item.tag)}</span>
             {/if}
             <span class="tag-badge">{displayTag(item.tag)}</span>
             <span class="tag-count">{item.count}</span>

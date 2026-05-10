@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { App } from "obsidian"
   import type { DateFilter, Priority, TodoItem } from "src/_types"
+  import { displayTag, tagEmojiFor } from "src/utils/helpers"
   import { navToFile } from "src/utils"
   import Icon from "./Icon.svelte"
 
@@ -81,12 +82,12 @@
 
   const priorityTint = (priority: Priority) => {
     if (!priorityRowTint) return "transparent"
-    if (priority === "highest") return "rgba(255, 214, 214, 0.55)"
-    if (priority === "high") return "rgba(255, 232, 214, 0.5)"
-    if (priority === "medium") return "rgba(243, 245, 210, 0.45)"
+    if (priority === "highest") return "rgba(255, 214, 214, 0.34)"
+    if (priority === "high") return "rgba(255, 232, 214, 0.28)"
+    if (priority === "medium") return "rgba(243, 245, 210, 0.24)"
     if (priority === "none") return "transparent"
-    if (priority === "low") return "rgba(221, 245, 226, 0.5)"
-    return "rgba(214, 246, 241, 0.46)"
+    if (priority === "low") return "rgba(221, 245, 226, 0.26)"
+    return "rgba(214, 246, 241, 0.2)"
   }
 
   const formatDate = (ts: number) => {
@@ -135,7 +136,7 @@
 
   const ageBarTextColor = (ts: number) => {
     const lightness = Math.max(0, Math.min(100, ageBarLightness(ts)))
-    return `color-mix(in srgb, black ${lightness}%, white ${100 - lightness}%)`
+    return lightness > 62 ? "var(--text-normal)" : "var(--text-on-accent)"
   }
 
   const handleTagSelectChange = async (ev: Event, item: TodoItem) => {
@@ -183,6 +184,18 @@
 
   const folderPathFor = (item: TodoItem) =>
     item.filePath.includes("/") ? item.filePath.slice(0, item.filePath.lastIndexOf("/")) : ""
+
+  const noteTagsFor = (item: TodoItem) => {
+    const tags = item.rawHTML.match(/#[\p{L}\p{N}_/-]+/gu) ?? []
+    if (item.mainTag) tags.push(`#${item.mainTag}${item.subTag ? `/${item.subTag}` : ""}`)
+    return Array.from(new Set(tags))
+  }
+
+  const noteTagLabel = (tag: string) => {
+    const emoji = tagEmojiFor(tag)
+    const text = displayTag(tag)
+    return emoji ? `${emoji} ${text}` : text
+  }
 </script>
 
 <table class="todo-table">
@@ -210,6 +223,7 @@
           <span>Days ago</span><span class="sort-icon">{sortIcon("daysAgo")}</span>
         </button>
       </th>
+      <th>Tags</th>
       <th>Actions</th>
     </tr>
   </thead>
@@ -217,7 +231,7 @@
     {#each sortedItems as item, index (rowId(item))}
       {#if groupByDay && (index === 0 || formatDate(sortedItems[index - 1].displayDateTs) !== formatDate(item.displayDateTs))}
         <tr class="day-group-row">
-          <td colspan="5">{formatDate(item.displayDateTs)}</td>
+          <td colspan="6">{formatDate(item.displayDateTs)}</td>
         </tr>
       {/if}
       <tr style={`--priority-row-bg:${priorityTint(item.priority)}`}>
@@ -269,6 +283,13 @@
             <span class="days-ago-value" style={`color:${ageBarTextColor(item.displayDateTs)}`}>
               {daysAgo(item.displayDateTs)}
             </span>
+          </div>
+        </td>
+        <td>
+          <div class="note-tags">
+            {#each noteTagsFor(item) as tag}
+              <span class="note-tag-chip">{noteTagLabel(tag)}</span>
+            {/each}
           </div>
         </td>
         <td>
@@ -369,7 +390,6 @@
   td {
     padding: 6px;
     text-align: left;
-    border-bottom: 1px solid var(--background-modifier-border);
     vertical-align: middle;
   }
 
@@ -437,6 +457,15 @@
     );
   }
 
+  .todo-table tbody tr {
+    position: relative;
+  }
+
+  .todo-table tbody tr:hover,
+  .todo-table tbody tr:focus-within {
+    z-index: 50;
+  }
+
   .todo-table tbody tr.day-group-row td {
     background: var(--background-secondary);
     color: var(--text-muted);
@@ -462,22 +491,27 @@
 
   .todo-table th:nth-child(2),
   .todo-table td:nth-child(2) {
-    width: 7.5%;
+    width: 11%;
   }
 
   .todo-table th:nth-child(3),
   .todo-table td:nth-child(3) {
-    width: 110px;
+    width: 92px;
   }
 
   .todo-table th:nth-child(4),
   .todo-table td:nth-child(4) {
-    width: 96px;
+    width: 80px;
   }
 
   .todo-table th:nth-child(5),
   .todo-table td:nth-child(5) {
-    width: 148px;
+    width: 96px;
+  }
+
+  .todo-table th:nth-child(6),
+  .todo-table td:nth-child(6) {
+    width: 96px;
   }
 
   .todo-table td {
@@ -490,10 +524,23 @@
     overflow: visible;
   }
 
+  .todo-table td:nth-child(6) {
+    overflow: visible;
+    position: relative;
+    z-index: 3;
+  }
+
+  .todo-table tbody tr:hover td:nth-child(6),
+  .todo-table tbody tr:focus-within td:nth-child(6) {
+    z-index: 60;
+  }
+
   .hide-cell-actions {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 2px;
+    width: max-content;
+    max-width: 100%;
   }
 
   .hide-column-checkbox {
@@ -519,7 +566,7 @@
   }
 
   .hide-todo-icon {
-    width: 24px;
+    width: 18px;
     height: 24px;
     padding: 0;
     display: inline-flex;
@@ -554,6 +601,26 @@
     background: var(--background-primary);
   }
 
+  .note-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .note-tag-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--background-secondary);
+    color: var(--text-accent);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
   .todo-content {
     display: flex;
     align-items: center;
@@ -561,7 +628,7 @@
     width: 100%;
     min-width: 0;
     border: 1px solid transparent;
-    background: var(--priority-row-bg, transparent);
+    background: transparent;
     border-radius: 6px;
     padding: 4px 6px;
     color: var(--text-normal);
@@ -612,8 +679,8 @@
     gap: 6px;
     width: 100%;
     min-width: 0;
-    background: var(--priority-row-bg, transparent);
-    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: 6px;
     padding: 4px 6px;
   }
@@ -645,12 +712,13 @@
     position: relative;
     display: inline-flex;
     padding-bottom: 4px;
+    z-index: 4;
   }
 
   .hide-action {
-    min-width: 58px;
+    min-width: 46px;
     height: 28px;
-    padding: 0 10px;
+    padding: 0 6px;
     border-radius: 6px;
     border: 1px solid var(--background-modifier-border);
     background: var(--background-primary);
@@ -669,8 +737,8 @@
     left: 50%;
     top: 30px;
     transform: translateX(-50%);
-    z-index: 100;
-    min-width: 220px;
+    z-index: 1000;
+    min-width: 196px;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
@@ -786,6 +854,7 @@
     align-items: center;
     min-height: 18px;
     padding: 0 6px;
-    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.14);
+    font-weight: 600;
+    text-shadow: none;
   }
 </style>

@@ -544,6 +544,10 @@ const formTodo = (
   const todoText = rawText
   const displayDateTs = getDateTsFromFileName(file.file.name) ?? file.file.stat.ctime
   const md = new MD()
+    .set({
+      linkify: true,
+      breaks: true,
+    })
     .use(commentPlugin)
     .use(linkPlugin(linkMap))
     .use(tagPlugin)

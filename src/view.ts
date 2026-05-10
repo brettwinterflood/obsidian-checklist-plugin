@@ -234,6 +234,7 @@ export default class TodoListView extends ItemView {
           expectedOriginalText,
         )
         if (!success) rollback()
+        else if (item.checked) this.plugin.showCompletedToast(item.todoText)
       },
       onAddTag: async (item: TodoItem, tag: string) => {
         const success = await setTodoItemTag(item, tag, this.app, item.originalText)

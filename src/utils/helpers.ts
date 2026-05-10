@@ -26,6 +26,48 @@ export const removeTagFromText = (text: string, tag: string) => {
 export const escapeRegExp = (text: string) =>
   text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+export const displayTag = (tag: string) => tag.replace(/^#/, '')
+
+export const tagEmojiFor = (tag: string) => {
+  const value = displayTag(tag).toLowerCase()
+  const rules: Array<{match: RegExp; emoji: string}> = [
+    {match: /(shopping|buy|purchase)/, emoji: '🛒'},
+    {match: /drip/, emoji: '🧥'},
+    {match: /(books|reading)/, emoji: '📖'},
+    {match: /dj/, emoji: '👨🏻‍🎤'},
+    {match: /production/, emoji: '🎧'},
+    {match: /visuals/, emoji: '🖼️'},
+    {match: /(music|release)/, emoji: '🎵'},
+    {match: /travel/, emoji: '🗺️'},
+    {match: /living-location/, emoji: '🏠'},
+    {match: /career/, emoji: '💼'},
+    {match: /(business|entrepreneurship|project)/, emoji: '🛠️'},
+    {match: /finance/, emoji: '💰'},
+    {match: /marketing/, emoji: '📈'},
+    {match: /(fitness|health)/, emoji: '💪'},
+    {match: /(dating|girls)/, emoji: '👱🏻‍♀️'},
+    {match: /(art|creative)/, emoji: '🎨'},
+    {match: /(mindset|philosophy|religion|politics)/, emoji: '🧠'},
+    {match: /\blife\b/, emoji: '⭐'},
+    {match: /(alert|warning|pay attention)/, emoji: '🚨'},
+    {match: /asia/, emoji: '🇭🇰🇸🇬🇹🇼🇹🇭🐉🗾🧧'},
+    {match: /(definition|what)/, emoji: '❓'},
+    {match: /\bwhy\b/, emoji: '🤷'},
+    {match: /shipping/, emoji: '🚢'},
+    {match: /(socialising|networking|meeting people)/, emoji: '🗣️'},
+    {match: /(coding|backend)/, emoji: '📟'},
+    {match: /(in progress|progress)/, emoji: '🚧'},
+    {match: /projects in progress/, emoji: '📂'},
+    {match: /(occult|magic|spells|affirmations)/, emoji: '🔮'},
+    {match: /(dress|form)/, emoji: '🧥'},
+    {match: /family/, emoji: '🏡'},
+    {match: /(goal|target|objective)/, emoji: '🎯'},
+    {match: /(next up|future|deferred)/, emoji: '🔜'},
+    {match: /(learning|growth)/, emoji: '🌱'},
+  ]
+  return rules.find((rule) => rule.match.test(value))?.emoji ?? ''
+}
+
 export const getTagMeta = (tag: string): TagMeta => {
   const tagMatch = /^\#([^\/]+)\/?(.*)?$/.exec(tag)
   if (!tagMatch) return {main: null, sub: null}
