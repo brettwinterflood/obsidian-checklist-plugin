@@ -6,11 +6,14 @@
   export let app: App
   export let items: TodoItem[] = []
   export let onPriorityChange: (item: TodoItem, priority: Priority) => Promise<void>
+  export let onTextChange: (item: TodoItem, text: string) => Promise<void>
   export let onToggleChecked: (item: TodoItem) => Promise<void>
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
   export let onHideTodo: (item: TodoItem) => Promise<void>
   export let onMoveToToday: (item: TodoItem) => Promise<void>
+  let editingRowId: string | null = null
+  let editingValue = ""
   let groupByDay = false
   let sortColumn: "date" | "daysAgo" | "" = ""
   let sortDirection: "asc" | "desc" | "" = ""
@@ -37,6 +40,27 @@
       return
     }
     navToFile(app, item.filePath, ev, item.line)
+  }
+
+  const rowId = (item: TodoItem) => `${item.filePath}:${item.line}`
+
+  const startEditing = (item: TodoItem) => {
+    editingRowId = rowId(item)
+    editingValue = item.todoText
+  }
+
+  const cancelEditing = () => {
+    editingRowId = null
+    editingValue = ""
+  }
+
+  const saveEditing = async (item: TodoItem) => {
+    const nextValue = editingValue.trim()
+    if (!nextValue) return
+    if (nextValue !== item.todoText) {
+      await onTextChange(item, nextValue)
+    }
+    cancelEditing()
   }
 
   const priorityRank: Record<Priority, number> = {
@@ -99,7 +123,6 @@
     return b.displayDateTs - a.displayDateTs
   })
 
-  const rowId = (item: TodoItem) => `${item.filePath}:${item.line}`
   const folderPathFor = (item: TodoItem) =>
     item.filePath.includes("/") ? item.filePath.slice(0, item.filePath.lastIndexOf("/")) : ""
 </script>
@@ -147,7 +170,33 @@
       {/if}
       <tr>
         <td>
-          <div class="todo-content" on:click={(ev) => handleTodoClick(ev, item)}>{@html item.rawHTML}</div>
+          {#if editingRowId === rowId(item)}
+            <div class="todo-editor">
+              <input
+                class="todo-edit-input"
+                bind:value={editingValue}
+                on:keydown={async (ev) => {
+                  if (ev.key === "Enter") {
+                    ev.preventDefault()
+                    await saveEditing(item)
+                  }
+                  if (ev.key === "Escape") {
+                    ev.preventDefault()
+                    cancelEditing()
+                  }
+                }}
+              />
+              <button class="todo-edit-save" on:click={() => saveEditing(item)}>Save</button>
+              <button class="todo-edit-cancel" on:click={cancelEditing}>Cancel</button>
+            </div>
+          {:else}
+            <div class="todo-content" on:dblclick={() => startEditing(item)} on:click={(ev) => handleTodoClick(ev, item)}>
+              {@html item.rawHTML}
+              <button class="todo-edit-trigger" title="Edit todo" on:click|stopPropagation={() => startEditing(item)}>
+                Edit
+              </button>
+            </div>
+          {/if}
         </td>
         <td>
           <button class="note-link" on:click={(ev) => navToFile(app, item.filePath, ev, item.line)}>{item.fileLabel}</button>
@@ -390,6 +439,9 @@
   }
 
   .todo-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     width: 100%;
     min-width: 0;
     border: 1px solid transparent;
@@ -414,6 +466,53 @@
   :global(.todo-content a) {
     color: var(--link-color);
     text-decoration: underline;
+  }
+
+  .todo-edit-trigger {
+    margin-left: auto;
+    flex: 0 0 auto;
+    width: initial;
+    padding: 0 8px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary-alt);
+    box-shadow: none;
+    color: var(--text-muted);
+  }
+
+  .todo-edit-trigger:hover {
+    color: var(--text-normal);
+  }
+
+  .todo-editor {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .todo-edit-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    border-radius: 6px;
+    padding: 4px 6px;
+    color: var(--text-normal);
+  }
+
+  .todo-edit-save,
+  .todo-edit-cancel {
+    flex: 0 0 auto;
+    width: initial;
+    padding: 0 10px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    box-shadow: none;
   }
 
   .hide-menu-wrap {

@@ -8,6 +8,7 @@ import {
   parseTodos,
   setTodoItemChecked,
   setTodoItemPriority,
+  setTodoItemText,
 } from './utils'
 
 import type {TodoSettings} from './settings'
@@ -188,6 +189,17 @@ export default class TodoListView extends ItemView {
         const success = await setTodoItemPriority(
           item,
           priority,
+          this.app,
+          expectedOriginalText,
+        )
+        if (!success) rollback()
+      },
+      onTextChange: async (item: TodoItem, text: string) => {
+        const expectedOriginalText = item.originalText
+        const rollback = this.applyOptimisticText(item, text)
+        const success = await setTodoItemText(
+          item,
+          text,
           this.app,
           expectedOriginalText,
         )
