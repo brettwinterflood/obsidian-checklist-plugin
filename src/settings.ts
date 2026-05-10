@@ -9,6 +9,7 @@ import {
 
 import type TodoPlugin from './main'
 import type {
+  DateFilter,
   GroupByType,
   LookAndFeel,
   Priority,
@@ -28,6 +29,10 @@ export interface TodoSettings {
   sortDirectionSubGroups: SortDirection
   includeFiles: string
   lookAndFeel: LookAndFeel
+  dateFilter: DateFilter
+  selectedPriorities: Priority[]
+  priorityRowTint: boolean
+  colorDurationBars: boolean
   pinnedFilePaths: string[]
   ignoredFilePaths: string[]
   excludedFolderPaths: string[]
@@ -49,6 +54,10 @@ export const DEFAULT_SETTINGS: TodoSettings = {
   sortDirectionSubGroups: 'new->old',
   includeFiles: '',
   lookAndFeel: 'classic',
+  dateFilter: 'last14',
+  selectedPriorities: [],
+  priorityRowTint: true,
+  colorDurationBars: false,
   pinnedFilePaths: ['TODO.md'],
   ignoredFilePaths: [],
   excludedFolderPaths: [],
@@ -107,6 +116,7 @@ export class TodoSettingTab extends PluginSettingTab {
     private plugin: TodoPlugin,
   ) {
     super(app, plugin)
+    this.plugin.settingsTab = this
   }
 
   display(): void {
@@ -261,6 +271,26 @@ export class TodoSettingTab extends PluginSettingTab {
         })
       })
 
+    new Setting(this.containerEl)
+      .setName('Tint rows by priority')
+      .setDesc('Use a subtle pastel row background based on each todo priority.')
+      .addToggle(toggle => {
+        toggle.setValue(this.plugin.getSettingValue('priorityRowTint'))
+        toggle.onChange(async value => {
+          await this.plugin.updateSettings({priorityRowTint: value})
+        })
+      })
+
+    new Setting(this.containerEl)
+      .setName('Color duration bars')
+      .setDesc('Use age-based colored duration bars instead of a monochrome neutral bar.')
+      .addToggle(toggle => {
+        toggle.setValue(this.plugin.getSettingValue('colorDurationBars'))
+        toggle.onChange(async value => {
+          await this.plugin.updateSettings({colorDurationBars: value})
+        })
+      })
+
     this.buildPathListSetting({
       title: 'Pinned notes',
       description:
@@ -274,7 +304,6 @@ export class TodoSettingTab extends PluginSettingTab {
             await this.plugin.updateSettings({
               pinnedFilePaths: [...current, path],
             })
-            this.display()
           }
         }).open(),
       onRemove: async value => {
@@ -283,7 +312,6 @@ export class TodoSettingTab extends PluginSettingTab {
             .getSettingValue('pinnedFilePaths')
             .filter(path => path !== value),
         })
-        this.display()
       },
     })
 
@@ -299,7 +327,6 @@ export class TodoSettingTab extends PluginSettingTab {
             await this.plugin.updateSettings({
               ignoredFilePaths: [...current, path],
             })
-            this.display()
           }
         }).open(),
       onRemove: async value => {
@@ -308,7 +335,6 @@ export class TodoSettingTab extends PluginSettingTab {
             .getSettingValue('ignoredFilePaths')
             .filter(path => path !== value),
         })
-        this.display()
       },
     })
 
@@ -324,7 +350,6 @@ export class TodoSettingTab extends PluginSettingTab {
             await this.plugin.updateSettings({
               excludedFolderPaths: [...current, path],
             })
-            this.display()
           }
         }).open(),
       onRemove: async value => {
@@ -333,7 +358,6 @@ export class TodoSettingTab extends PluginSettingTab {
             .getSettingValue('excludedFolderPaths')
             .filter(path => path !== value),
         })
-        this.display()
       },
     })
 

@@ -1,20 +1,26 @@
 <script lang="ts">
   import type { App } from "obsidian"
-  import type { Priority, TodoItem } from "src/_types"
+  import type { DateFilter, Priority, TodoItem } from "src/_types"
   import { navToFile } from "src/utils"
+  import Icon from "./Icon.svelte"
 
   export let app: App
   export let items: TodoItem[] = []
+  export let todoTags: string[] = []
+  export let dateFilter: DateFilter = "last14"
+  export let priorityRowTint: boolean = true
+  export let colorDurationBars: boolean = false
+  export let groupByDay: boolean = false
   export let onPriorityChange: (item: TodoItem, priority: Priority) => Promise<void>
   export let onTextChange: (item: TodoItem, text: string) => Promise<void>
   export let onToggleChecked: (item: TodoItem) => Promise<void>
+  export let onAddTag: (item: TodoItem, tag: string) => Promise<void>
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
   export let onHideTodo: (item: TodoItem) => Promise<void>
   export let onMoveToToday: (item: TodoItem) => Promise<void>
   let editingRowId: string | null = null
   let editingValue = ""
-  let groupByDay = false
   let sortColumn: "date" | "daysAgo" | "" = ""
   let sortDirection: "asc" | "desc" | "" = ""
 
@@ -26,7 +32,8 @@
     { value: "low", label: "🔽" },
     { value: "lowest", label: "⏬" },
   ]
-  const priorityActionOptions = priorityOptions
+  const priorityActionOptions = [...priorityOptions].reverse()
+  const visibleTodoTags = todoTags.filter((tag) => tag && tag.trim())
 
   const handleTodoClick = (ev: MouseEvent, item: TodoItem) => {
     const target = ev.target as HTMLElement
@@ -39,7 +46,7 @@
       }
       return
     }
-    navToFile(app, item.filePath, ev, item.line)
+    startEditing(item)
   }
 
   const rowId = (item: TodoItem) => `${item.filePath}:${item.line}`
@@ -72,6 +79,16 @@
     lowest: 5,
   }
 
+  const priorityTint = (priority: Priority) => {
+    if (!priorityRowTint) return "transparent"
+    if (priority === "highest") return "rgba(255, 214, 214, 0.55)"
+    if (priority === "high") return "rgba(255, 232, 214, 0.5)"
+    if (priority === "medium") return "rgba(243, 245, 210, 0.45)"
+    if (priority === "none") return "transparent"
+    if (priority === "low") return "rgba(221, 245, 226, 0.5)"
+    return "rgba(214, 246, 241, 0.46)"
+  }
+
   const formatDate = (ts: number) => {
     const date = new Date(ts)
     const year = date.getFullYear()
@@ -86,6 +103,47 @@
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     return Math.max(0, Math.floor((today.getTime() - itemDate.getTime()) / 86400000))
+  }
+
+  const dateFilterDays = () => {
+    if (dateFilter === "today") return 1
+    if (dateFilter === "last7") return 7
+    if (dateFilter === "last14") return 14
+    if (dateFilter === "last30") return 30
+    if (dateFilter === "last60") return 60
+    return Math.max(1, ...items.map((item) => daysAgo(item.displayDateTs)))
+  }
+
+  const ageBarWidth = (ts: number) => {
+    const scale = dateFilterDays()
+    return Math.max(2, Math.min(100, (daysAgo(ts) / scale) * 100))
+  }
+
+  const ageBarColor = (ts: number) => {
+    const scale = dateFilterDays()
+    const ratio = Math.max(0, Math.min(1, daysAgo(ts) / scale))
+    if (!colorDurationBars) return `hsla(0, 0%, ${82 - ratio * 48}%, 0.8)`
+    const hue = 120 - ratio * 120
+    return `hsla(${hue}, 70%, 84%, 0.72)`
+  }
+
+  const ageBarLightness = (ts: number) => {
+    const scale = dateFilterDays()
+    const ratio = Math.max(0, Math.min(1, daysAgo(ts) / scale))
+    return colorDurationBars ? 84 : 82 - ratio * 48
+  }
+
+  const ageBarTextColor = (ts: number) => {
+    const lightness = Math.max(0, Math.min(100, ageBarLightness(ts)))
+    return `color-mix(in srgb, black ${lightness}%, white ${100 - lightness}%)`
+  }
+
+  const handleTagSelectChange = async (ev: Event, item: TodoItem) => {
+    const target = ev.currentTarget as HTMLSelectElement
+    const value = target.value
+    target.value = ""
+    if (!value) return
+    await onAddTag(item, value)
   }
 
   const cycleSort = (column: "date" | "daysAgo") => {
@@ -104,7 +162,7 @@
 
   const sortIcon = (column: "date" | "daysAgo") => {
     if (sortColumn !== column) return "⇅"
-    return sortDirection === "asc" ? "▲" : "▼"
+    return sortDirection === "asc" ? "⌃" : "⌄"
   }
 
   $: sortedItems = [...items].sort((a, b) => {
@@ -126,12 +184,6 @@
   const folderPathFor = (item: TodoItem) =>
     item.filePath.includes("/") ? item.filePath.slice(0, item.filePath.lastIndexOf("/")) : ""
 </script>
-
-<div class="table-controls">
-  <button class:active={groupByDay} on:click={() => (groupByDay = !groupByDay)}>
-    Group by day
-  </button>
-</div>
 
 <table class="todo-table">
   <thead>
@@ -168,7 +220,7 @@
           <td colspan="5">{formatDate(item.displayDateTs)}</td>
         </tr>
       {/if}
-      <tr>
+      <tr style={`--priority-row-bg:${priorityTint(item.priority)}`}>
         <td>
           {#if editingRowId === rowId(item)}
             <div class="todo-editor">
@@ -190,7 +242,7 @@
               <button class="todo-edit-cancel" on:click={cancelEditing}>Cancel</button>
             </div>
           {:else}
-            <div class="todo-content" on:dblclick={() => startEditing(item)} on:click={(ev) => handleTodoClick(ev, item)}>
+            <div class="todo-content" on:click={(ev) => handleTodoClick(ev, item)}>
               {@html item.rawHTML}
               <button class="todo-edit-trigger" title="Edit todo" aria-label="Edit todo" on:click|stopPropagation={() => startEditing(item)}>
                 ✎
@@ -199,10 +251,26 @@
           {/if}
         </td>
         <td>
-          <button class="note-link" on:click={(ev) => navToFile(app, item.filePath, ev, item.line)}>{item.fileLabel}</button>
+          <button
+            class="note-link"
+            title={item.fileLabel}
+            on:click={(ev) => navToFile(app, item.filePath, ev, item.line)}
+          >
+            {item.fileLabel}
+          </button>
         </td>
         <td>{formatDate(item.displayDateTs)}</td>
-        <td>{daysAgo(item.displayDateTs)}</td>
+        <td>
+          <div class="days-ago-meter">
+            <div
+              class="days-ago-fill"
+              style={`width:${ageBarWidth(item.displayDateTs)}%;background:${ageBarColor(item.displayDateTs)}`}
+            />
+            <span class="days-ago-value" style={`color:${ageBarTextColor(item.displayDateTs)}`}>
+              {daysAgo(item.displayDateTs)}
+            </span>
+          </div>
+        </td>
         <td>
           <div class="hide-cell-actions">
             <div class="hide-menu-wrap">
@@ -210,11 +278,24 @@
 	                Actions
 	              </button>
 	              <div class="hide-menu">
+	                {#if visibleTodoTags.length}
+	                  <select
+	                    class="tag-action-select"
+	                    value=""
+	                    on:change={(ev) => handleTagSelectChange(ev, item)}
+	                  >
+	                    <option value="" disabled>Add tag</option>
+	                    {#each visibleTodoTags as tag}
+	                      <option value={tag}>#{tag}</option>
+	                    {/each}
+	                  </select>
+	                {/if}
 	                <div class="priority-actions" aria-label="Set priority">
 	                  {#each priorityActionOptions as option}
 	                    <button
 	                      class:active={item.priority === option.value}
 	                      title={`Set priority ${option.value}`}
+	                      style={`--priority-chip-bg:${priorityTint(option.value)}`}
 	                      on:click={() => onPriorityChange(item, option.value)}
 	                    >
 	                      {option.label}
@@ -234,10 +315,10 @@
 	                  📅 Move to today's note
 	                </button>
 	                <button on:click={() => onHideTodo(item)}>
-	                  Convert to bullet point
+	                  • Convert to bullet point
 	                </button>
                 <button on:click={() => onHideFile(item.filePath)}>
-                  Hide note
+                  Hide note: <code>{item.fileLabel}</code>
                 </button>
                 <button
                   disabled={!folderPathFor(item)}
@@ -246,17 +327,27 @@
                     if (folder) onHideFolder(folder)
                   }}
                 >
-                  Hide folder: {folderPathFor(item) || "(vault root)"}
+                  Hide folder: <code>{folderPathFor(item) || "(vault root)"}</code>
                 </button>
               </div>
             </div>
-            <input
+            <button
+              class:checked={item.checked}
               class="hide-column-checkbox"
-              type="checkbox"
               title="Complete todo"
-              checked={item.checked}
-              on:change={() => onToggleChecked(item)}
-            />
+              aria-label="Complete todo"
+              on:click={() => onToggleChecked(item)}
+            >
+              ✅
+            </button>
+            <button
+              class="hide-todo-icon"
+              title="Convert to bullet point"
+              aria-label="Convert to bullet point"
+              on:click={() => onHideTodo(item)}
+            >
+              <Icon name="trash" style="button" />
+            </button>
           </div>
         </td>
       </tr>
@@ -272,29 +363,6 @@
     font-size: var(--checklist-contentFontSize);
     table-layout: fixed;
     margin-top: 0;
-  }
-
-  .table-controls {
-    display: flex;
-    justify-content: flex-end;
-    margin: 8px 0;
-  }
-
-  .table-controls > button {
-    width: initial;
-    height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--checklist-listItemBorderRadius);
-    background: var(--background-primary);
-    box-shadow: none;
-    color: var(--text-muted);
-  }
-
-  .table-controls > button.active {
-    background: var(--interactive-accent);
-    border-color: var(--interactive-accent);
-    color: var(--text-on-accent);
   }
 
   th,
@@ -362,7 +430,11 @@
   }
 
   .todo-table tbody tr:hover td {
-    background: var(--background-secondary);
+    background: color-mix(
+      in srgb,
+      var(--priority-row-bg, transparent) 72%,
+      var(--background-secondary) 28%
+    );
   }
 
   .todo-table tbody tr.day-group-row td {
@@ -379,6 +451,10 @@
     background: var(--background-secondary);
   }
 
+  .todo-table tbody tr:not(.day-group-row) td {
+    background: var(--priority-row-bg, transparent);
+  }
+
   .todo-table th:nth-child(1),
   .todo-table td:nth-child(1) {
     width: 52%;
@@ -386,7 +462,7 @@
 
   .todo-table th:nth-child(2),
   .todo-table td:nth-child(2) {
-    width: 22%;
+    width: 7.5%;
   }
 
   .todo-table th:nth-child(3),
@@ -396,7 +472,7 @@
 
   .todo-table th:nth-child(4),
   .todo-table td:nth-child(4) {
-    width: 78px;
+    width: 96px;
   }
 
   .todo-table th:nth-child(5),
@@ -422,6 +498,38 @@
 
   .hide-column-checkbox {
     flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    color: var(--success-color);
+    font-size: 15px;
+    line-height: 1;
+    opacity: 0.55;
+    outline: none;
+  }
+
+  .hide-column-checkbox.checked {
+    opacity: 1;
+  }
+
+  .hide-todo-icon {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    flex: 0 0 auto;
+    outline: none;
   }
 
   .note-link {
@@ -438,6 +546,14 @@
     text-decoration: underline;
   }
 
+  .note-link:hover {
+    overflow: visible;
+    white-space: normal;
+    position: relative;
+    z-index: 2;
+    background: var(--background-primary);
+  }
+
   .todo-content {
     display: flex;
     align-items: center;
@@ -445,7 +561,7 @@
     width: 100%;
     min-width: 0;
     border: 1px solid transparent;
-    background: var(--background-primary);
+    background: var(--priority-row-bg, transparent);
     border-radius: 6px;
     padding: 4px 6px;
     color: var(--text-normal);
@@ -475,8 +591,8 @@
     height: 24px;
     padding: 0;
     border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary-alt);
+    border: none;
+    background: transparent;
     box-shadow: none;
     color: var(--text-muted);
     display: inline-flex;
@@ -496,16 +612,21 @@
     gap: 6px;
     width: 100%;
     min-width: 0;
+    background: var(--priority-row-bg, transparent);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 4px 6px;
   }
 
   .todo-edit-input {
     flex: 1 1 auto;
     min-width: 0;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    border-radius: 6px;
-    padding: 4px 6px;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
     color: var(--text-normal);
+    box-shadow: none;
   }
 
   .todo-edit-save,
@@ -545,8 +666,9 @@
 
   .hide-menu {
     position: absolute;
-    right: 0;
+    left: 50%;
     top: 30px;
+    transform: translateX(-50%);
     z-index: 100;
     min-width: 220px;
     background: var(--background-primary);
@@ -555,6 +677,19 @@
     padding: 4px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     display: none;
+  }
+
+  .tag-action-select {
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    box-shadow: none;
+    outline: none;
+    margin-bottom: 4px;
   }
 
   .hide-menu-wrap:hover .hide-menu,
@@ -604,23 +739,53 @@
 	    border-bottom: 1px solid var(--background-modifier-border);
 	  }
 
-	  .priority-actions > button {
-	    width: 28px;
-	    height: 28px;
-	    padding: 0;
-	    display: inline-flex;
+  .priority-actions > button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
 	    align-items: center;
 	    justify-content: center;
-	    border: 1px solid transparent;
-	    border-radius: 6px;
-	    background: transparent;
-	    box-shadow: none;
-	    font-size: 13px;
-	  }
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: var(--priority-chip-bg, transparent);
+    box-shadow: none;
+    font-size: 13px;
+  }
 
-	  .priority-actions > button:hover,
-	  .priority-actions > button.active {
-	    background: var(--background-secondary);
-	    border-color: var(--background-modifier-border);
-	  }
+  .priority-actions > button:hover,
+  .priority-actions > button.active {
+    background: color-mix(
+      in srgb,
+      var(--priority-chip-bg, var(--background-secondary)) 72%,
+      var(--background-secondary) 28%
+    );
+    border-color: var(--background-modifier-border);
+  }
+
+  .days-ago-meter {
+    position: relative;
+    min-height: 18px;
+    width: 100%;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--background-secondary) 55%, transparent);
+  }
+
+  .days-ago-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 999px;
+    min-width: 2px;
+  }
+
+  .days-ago-value {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    min-height: 18px;
+    padding: 0 6px;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.14);
+  }
 </style>

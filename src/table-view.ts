@@ -3,11 +3,14 @@ import {ItemView, WorkspaceLeaf} from 'obsidian'
 import {TODO_TABLE_VIEW_TYPE} from './constants'
 import App from './svelte/App.svelte'
 import {
+  CreateTodoModal,
+  createTodoInTodayNote,
   groupTodos,
   hideTodoItem,
   moveTodoItemToToday,
   parseTodos,
   setTodoItemChecked,
+  setTodoItemTag,
   setTodoItemPriority,
   setTodoItemText,
 } from './utils'
@@ -21,12 +24,15 @@ export default class TodoTableView extends ItemView {
   private lastRerender = 0
   private groupedItems: TodoGroup[] = []
   private filteredItems: TodoItem[] = []
+  private periodTodoCount = 0
+  private periodPriorityCounts: Array<{priority: Priority; count: number}> = []
+  private periodTagCounts: Array<{tag: string; count: number}> = []
   private itemsByFile = new Map<string, TodoItem[]>()
   private usedTags: string[] = []
   private selectedUsedTag = ''
-  private selectedPriority: Priority | '' = ''
+  private selectedPriorities: Priority[]
   private searchTerm = ''
-  private dateFilter: DateFilter = 'last14'
+  private dateFilter: DateFilter
   private isLoading = false
 
   constructor(
@@ -34,6 +40,8 @@ export default class TodoTableView extends ItemView {
     private plugin: TodoPlugin,
   ) {
     super(leaf)
+    this.dateFilter = this.plugin.getSettingValue('dateFilter')
+    this.selectedPriorities = [...this.plugin.getSettingValue('selectedPriorities')]
   }
 
   getViewType(): string {
@@ -134,13 +142,24 @@ export default class TodoTableView extends ItemView {
       excludedFolderPaths: this.plugin.getSettingValue('excludedFolderPaths'),
       hiddenPriorities: this.plugin.getSettingValue('_hiddenPriorities'),
       dateFilter: this.dateFilter,
-      usedTags: this.usedTags,
+      usedTagCounts: this.periodTagCounts,
       selectedUsedTag: this.selectedUsedTag,
-      selectedPriority: this.selectedPriority,
+      selectedPriorities: this.selectedPriorities,
+      priorityRowTint: this.plugin.getSettingValue('priorityRowTint'),
+      colorDurationBars: this.plugin.getSettingValue('colorDurationBars'),
+      totalTodoCount: this.periodTodoCount,
+      priorityCounts: this.periodPriorityCounts,
       isLoading: this.isLoading,
       updateSetting: (updates: Partial<TodoSettings>) =>
         this.plugin.updateSettings(updates),
       onOpenTableView: () => undefined,
+      onCreateTodo: () => {
+        new CreateTodoModal(this.app, async text => {
+          await createTodoInTodayNote(this.app, text)
+          await this.refresh()
+        }).open()
+      },
+      onFullReload: () => this.refresh(true),
       onHideFile: async (path: string) => {
         const rollback = this.applyOptimisticHideFile(path)
         const ignored = this.plugin.getSettingValue('ignoredFilePaths')
@@ -185,7 +204,11 @@ export default class TodoTableView extends ItemView {
           this.app,
           expectedOriginalText,
         )
-        if (!result) rollback()
+        if (!result) {
+          rollback()
+          return
+        }
+        await this.refresh(true)
       },
       onTogglePin: async (path: string) => {
         const pinned = this.plugin.getSettingValue('pinnedFilePaths')
@@ -227,14 +250,17 @@ export default class TodoTableView extends ItemView {
         )
         if (!success) rollback()
       },
+      onAddTag: async (item: TodoItem, tag: string) => {
+        const success = await setTodoItemTag(item, tag, this.app, item.originalText)
+        if (success) await this.refresh()
+      },
       onSearch: (val: string) => {
         this.searchTerm = val
         this.refresh()
       },
       onDateFilterChange: (filter: DateFilter) => {
         this.dateFilter = filter
-        this.groupItems()
-        this.renderView()
+        void this.plugin.updateSettings({dateFilter: filter})
       },
       onUsedTagFilterChange: (tag: string) => {
         this.selectedUsedTag = tag
@@ -242,7 +268,14 @@ export default class TodoTableView extends ItemView {
         this.renderView()
       },
       onPriorityFilterChange: (priority: Priority | '') => {
-        this.selectedPriority = priority
+        this.selectedPriorities = priority ? [priority] : []
+        void this.plugin.updateSettings({selectedPriorities: this.selectedPriorities})
+        this.groupItems()
+        this.renderView()
+      },
+      onPriorityRangeChange: (priorities: Priority[]) => {
+        this.selectedPriorities = priorities
+        void this.plugin.updateSettings({selectedPriorities: priorities})
         this.groupItems()
         this.renderView()
       },
@@ -278,10 +311,9 @@ export default class TodoTableView extends ItemView {
         excludedFolders.some(folder =>
           item.filePath === folder || item.filePath.startsWith(`${folder}/`),
         )
-      )
+        )
         return false
       if (hiddenPriorities.includes(item.priority)) return false
-      if (this.selectedPriority && item.priority !== this.selectedPriority) return false
       if (!this.plugin.getSettingValue('showChecked') && item.checked) return false
       if (!this.itemMatchesDateFilter(item)) return false
       if (viewOnlyOpen && (!openFile || item.filePath !== openFile.path)) return false
@@ -290,21 +322,33 @@ export default class TodoTableView extends ItemView {
     this.usedTags = this.getUsedTags(baseFilteredItems)
     if (this.selectedUsedTag && !this.usedTags.includes(this.selectedUsedTag))
       this.selectedUsedTag = ''
-    this.filteredItems = this.selectedUsedTag
+    const tagFilteredItems = this.selectedUsedTag
       ? baseFilteredItems.filter(item =>
           this.itemMatchesSelectedTag(item, this.selectedUsedTag),
         )
       : baseFilteredItems
     const searchTerm = this.searchTerm.toLowerCase()
-    const searchedItems = this.filteredItems.filter(item =>
+    const searchedItems = tagFilteredItems.filter(item =>
       [item.originalText, item.filePath]
         .join(' ')
         .toLowerCase()
         .includes(searchTerm),
     )
-    this.filteredItems = searchedItems
+    this.periodTodoCount = searchedItems.length
+    this.periodTagCounts = this.getTopUsedTags(searchedItems)
+    const priorities: Priority[] = ['highest', 'high', 'medium', 'none', 'low', 'lowest']
+    this.periodPriorityCounts = priorities.map(priority => ({
+      priority,
+      count: searchedItems.filter(item => item.priority === priority).length,
+    }))
+    const priorityFilteredItems = this.selectedPriorities.length
+      ? searchedItems.filter(item =>
+          this.selectedPriorities.includes(item.priority),
+        )
+      : searchedItems
+    this.filteredItems = priorityFilteredItems
     this.groupedItems = groupTodos(
-      searchedItems,
+      priorityFilteredItems,
       this.plugin.getSettingValue('groupBy'),
       this.plugin.getSettingValue('sortDirectionGroups'),
       this.plugin.getSettingValue('sortDirectionItems'),
@@ -377,6 +421,21 @@ export default class TodoTableView extends ItemView {
     ).sort((a, b) => a.localeCompare(b))
   }
 
+  private getTopUsedTags(items: TodoItem[]) {
+    const tags = this.getUsedTags(items)
+    const tagCounts = new Map<string, number>()
+    for (const tag of tags) {
+      tagCounts.set(
+        tag,
+        items.reduce((count, item) => count + (this.matchesTagText(item, tag) ? 1 : 0), 0),
+      )
+    }
+    return Array.from(tagCounts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 10)
+      .map(([tag, count]) => ({tag, count}))
+  }
+
   private getItemTags(item: TodoItem) {
     const tags = item.originalText.match(/#[\p{L}\p{N}_/-]+/gu) ?? []
     if (item.mainTag)
@@ -385,6 +444,10 @@ export default class TodoTableView extends ItemView {
   }
 
   private itemMatchesSelectedTag(item: TodoItem, selectedTag: string) {
+    return this.matchesTagText(item, selectedTag)
+  }
+
+  private matchesTagText(item: TodoItem, selectedTag: string) {
     if (this.getItemTags(item).includes(selectedTag)) return true
     const plainTag = selectedTag.replace(/^#/, '').toLowerCase()
     return [item.originalText, item.filePath]
@@ -486,10 +549,11 @@ export default class TodoTableView extends ItemView {
           candidate.filePath !== item.filePath || candidate.line !== item.line,
       ),
     )
-    this.itemsByFile.set(todayPath, [
-      ...(this.itemsByFile.get(todayPath) ?? []),
-      movedItem,
-    ])
+    const existingToday = (this.itemsByFile.get(todayPath) ?? []).filter(
+      candidate =>
+        candidate.filePath !== item.filePath || candidate.line !== item.line,
+    )
+    this.itemsByFile.set(todayPath, [...existingToday, movedItem])
     this.groupItems()
     this.renderView()
     return () => {

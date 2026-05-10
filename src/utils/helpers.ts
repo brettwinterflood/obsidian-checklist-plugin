@@ -23,6 +23,9 @@ export const removeTagFromText = (text: string, tag: string) => {
   return text.replace(new RegExp(`\\s?\\#${tag}[^\\s]*`, 'g'), '').trim()
 }
 
+export const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 export const getTagMeta = (tag: string): TagMeta => {
   const tagMatch = /^\#([^\/]+)\/?(.*)?$/.exec(tag)
   if (!tagMatch) return {main: null, sub: null}
@@ -161,9 +164,10 @@ const PRIORITY_ORDER: Priority[] = [
 ]
 
 const PRIORITY_EMOJI_REGEX = /\s*(🔺|⏫|🔼|🔽|⏬)\s*$/
+const PRIORITY_EMOJI_ANYWHERE_REGEX = /(🔺|⏫|🔼|🔽|⏬)/
 
 export const parsePriority = (text: string): Priority => {
-  const match = text.trimEnd().match(PRIORITY_EMOJI_REGEX)
+  const match = text.match(PRIORITY_EMOJI_ANYWHERE_REGEX)
   if (!match) return 'none'
   const found = PRIORITY_ORDER.find(p => PRIORITY_EMOJI[p] === match[1])
   return found ?? 'none'
@@ -172,5 +176,19 @@ export const parsePriority = (text: string): Priority => {
 export const stripTrailingPriority = (text: string): string =>
   text.replace(PRIORITY_EMOJI_REGEX, '').trimEnd()
 
+export const stripPriorityFromText = (text: string): string =>
+  text.replace(PRIORITY_EMOJI_ANYWHERE_REGEX, '').replace(/\s{2,}/g, ' ').trimEnd()
+
 export const stripTrailingDoneDate = (text: string): string =>
   text.replace(DONE_DATE_PATTERN, '').trimEnd()
+
+export const appendTagToText = (text: string, tag: string) => {
+  const normalizedTag = tag.replace(/^#/, '').trim()
+  if (!normalizedTag) return text.trim()
+  const tagPattern = new RegExp(`(?:^|\\s)\\#${escapeRegExp(normalizedTag)}(?:\\s|$)`, 'i')
+  if (tagPattern.test(text)) return text.trim()
+  const priorityMatch = text.trimEnd().match(PRIORITY_EMOJI_REGEX)
+  const prioritySuffix = priorityMatch ? ` ${priorityMatch[1]}` : ''
+  const body = stripTrailingPriority(text).trimEnd()
+  return `${body} #${normalizedTag}${prioritySuffix}`.trimEnd()
+}

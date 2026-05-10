@@ -10,6 +10,7 @@
   export let group: TodoGroup
   export let isCollapsed: boolean
   export let lookAndFeel: LookAndFeel
+  export let priorityRowTint: boolean = true
   export let pinnedFilePaths: string[]
   export let app: App
   export let onToggle: (id: string) => void
@@ -113,7 +114,7 @@
   {#if !isCollapsed}
     <ul>
       {#each group.todos as item}
-        <ChecklistItem {item} {lookAndFeel} {app} {onToggleChecked} />
+        <ChecklistItem {item} {lookAndFeel} {app} {onToggleChecked} {priorityRowTint} />
       {/each}
     </ul>
   {/if}

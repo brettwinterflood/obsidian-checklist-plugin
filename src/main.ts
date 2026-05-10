@@ -7,15 +7,16 @@ import TodoListView from './view'
 
 export default class TodoPlugin extends Plugin {
   private settings: TodoSettings
+  settingsTab?: TodoSettingTab
 
   get view() {
-    return this.app.workspace.getLeavesOfType(TODO_VIEW_TYPE)[0]
-      ?.view as TodoListView
+    const view = this.app.workspace.getLeavesOfType(TODO_VIEW_TYPE)[0]?.view
+    return view instanceof TodoListView ? view : undefined
   }
 
   get tableView() {
-    return this.app.workspace.getLeavesOfType(TODO_TABLE_VIEW_TYPE)[0]
-      ?.view as TodoTableView
+    const view = this.app.workspace.getLeavesOfType(TODO_TABLE_VIEW_TYPE)[0]?.view
+    return view instanceof TodoTableView ? view : undefined
   }
 
   async onload() {
@@ -54,8 +55,8 @@ export default class TodoPlugin extends Plugin {
       id: 'refresh-checklist-view',
       name: 'Refresh List',
       callback: () => {
-        this.view?.refresh()
-        this.tableView?.refresh()
+        this.view?.refresh(true)
+        this.tableView?.refresh(true)
       },
     })
     this.addCommand({
@@ -65,7 +66,7 @@ export default class TodoPlugin extends Plugin {
         this.openTableView()
       },
     })
-    this.addRibbonIcon('table', 'Open Checklist Table', () => {
+    this.addRibbonIcon('list-checks', 'Open Checklist Table', () => {
       this.openTableView()
     })
     this.registerView(TODO_VIEW_TYPE, leaf => {
@@ -106,11 +107,14 @@ export default class TodoPlugin extends Plugin {
     const onlyRepaintWhenChanges = [
       'autoRefresh',
       'lookAndFeel',
+      'priorityRowTint',
+      'colorDurationBars',
       '_collapsedSections',
     ]
     const onlyReGroupWhenChanges = [
       'subGroups',
       'groupBy',
+      'dateFilter',
       'sortDirectionGroups',
       'sortDirectionSubGroups',
       'sortDirectionItems',
@@ -121,13 +125,14 @@ export default class TodoPlugin extends Plugin {
       '_hiddenTags',
     ]
     if (onlyRepaintWhenChanges.includes(Object.keys(updates)[0])) {
-      this.view?.rerender()
-      this.tableView?.rerender()
+      if (typeof this.view?.rerender === 'function') this.view.rerender()
+      if (typeof this.tableView?.rerender === 'function') this.tableView.rerender()
     } else {
       const shouldReparse = !onlyReGroupWhenChanges.includes(Object.keys(updates)[0])
-      this.view?.refresh(shouldReparse)
-      this.tableView?.refresh(shouldReparse)
+      if (typeof this.view?.refresh === 'function') this.view.refresh(shouldReparse)
+      if (typeof this.tableView?.refresh === 'function') this.tableView.refresh(shouldReparse)
     }
+    this.settingsTab?.display()
   }
 
   getSettingValue<K extends keyof TodoSettings>(setting: K): TodoSettings[K] {

@@ -20,9 +20,12 @@ import {
   mapLinkMeta,
   parsePriority,
   PRIORITY_EMOJI,
+  appendTagToText,
   removeTagFromText,
   setLineTo,
   stripTrailingPriority,
+  stripPriorityFromText,
+  stripTrailingDoneDate,
   todoLineIsChecked,
 } from './helpers'
 
@@ -34,6 +37,8 @@ import type {
   TFile,
   Vault,
 } from 'obsidian'
+import {Modal, TextComponent} from 'obsidian'
+import * as Obsidian from 'obsidian'
 import type {TodoItem, TagMeta, FileInfo} from 'src/_types'
 import type {Priority} from 'src/_types'
 
@@ -177,6 +182,27 @@ export const setTodoItemText = async (
   return true
 }
 
+export const setTodoItemTag = async (
+  item: TodoItem,
+  tag: string,
+  app: App,
+  expectedOriginalText = item.originalText,
+): Promise<boolean> => {
+  const file = getFileFromPath(app.vault, item.filePath)
+  if (!file) return false
+  const currentFileContents = await app.vault.read(file)
+  const currentFileLines = getAllLinesFromFile(currentFileContents)
+  const targetLine = currentFileLines[item.line]
+  if (!targetLine || !targetLine.includes(expectedOriginalText)) return false
+  const updated = setTodoTagAtLine(currentFileLines, item.line, tag)
+  await app.vault.modify(file, updated)
+  const nextText = appendTagToText(item.originalText, tag)
+  item.todoText = nextText
+  item.originalText = nextText
+  item.priority = parsePriority(nextText)
+  return true
+}
+
 export const hideTodoItem = async (
   item: TodoItem,
   app: App,
@@ -211,11 +237,235 @@ export const moveTodoItemToToday = async (
   let todayFile = getFileFromPath(app.vault, todayPath)
   if (!todayFile) todayFile = await app.vault.create(todayPath, '')
 
-  sourceLines.splice(item.line, 1)
+  sourceLines[item.line] = moveTodoAtLineToBullet(
+    sourceLine,
+    getFileLabelFromName(todayFile.name) ?? todayFile.name,
+  )
   await app.vault.modify(sourceFile, combineFileLines(sourceLines))
   await app.vault.append(todayFile, `${sourceLine}\n`)
 
   return {filePath: todayPath, displayDateTs: today.getTime()}
+}
+
+export const createTodoInTodayNote = async (app: App, text: string) => {
+  const todoText = text.trim()
+  if (!todoText) return false
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayPath = `${formatLocalDate(today)}.md`
+  const todoLine = `- [ ] ${todoText}`
+  const todayFile = getFileFromPath(app.vault, todayPath)
+
+  if (!todayFile) {
+    await app.vault.create(todayPath, `${todoLine}\n`)
+    return {filePath: todayPath, displayDateTs: today.getTime()}
+  }
+
+  const existing = await app.vault.read(todayFile)
+  const separator = existing.length && !existing.endsWith('\n') ? '\n' : ''
+  await app.vault.modify(todayFile, `${existing}${separator}${todoLine}\n`)
+  return {filePath: todayPath, displayDateTs: today.getTime()}
+}
+
+type CreateTodoSuggestion =
+  | {type: 'link'; value: string; display: string; hint: string}
+  | {type: 'tag'; value: string; display: string; hint: string}
+
+class CreateTodoInputSuggest extends (Obsidian as any).AbstractInputSuggest<CreateTodoSuggestion> {
+  private files: string[]
+  private tags: string[]
+
+  constructor(
+    app: App,
+    private inputEl: HTMLInputElement,
+    files: TFile[],
+    tags: string[],
+  ) {
+    super(app, inputEl)
+    this.files = files
+      .map(file => app.metadataCache.fileToLinktext(file, ''))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+    this.tags = tags
+  }
+
+  protected getSuggestions(query: string) {
+    const cursor = this.inputEl.selectionStart ?? query.length
+    const beforeCursor = query.slice(0, cursor)
+    const match = beforeCursor.match(/(?:^|\s)(\[\[[^\s\[]*|\#[^\s#]*)$/)
+    if (!match) return []
+    const token = match[1]
+    if (token.startsWith('[[')) {
+      const needle = token.slice(2).toLowerCase()
+      return this.files
+        .filter(file => file.toLowerCase().includes(needle))
+        .slice(0, 10)
+        .map(file => ({
+          type: 'link' as const,
+          value: file,
+          display: `[[${file}]]`,
+          hint: 'Note',
+        }))
+    }
+    const needle = token.slice(1).toLowerCase()
+    return this.tags
+      .filter(tag => tag.toLowerCase().includes(needle))
+      .slice(0, 10)
+      .map(tag => ({
+        type: 'tag' as const,
+        value: tag,
+        display: `#${tag}`,
+        hint: 'Tag',
+      }))
+  }
+
+  renderSuggestion(value: CreateTodoSuggestion, el: HTMLElement) {
+    const row = el.createDiv({cls: 'create-todo-suggestion'})
+    row.createSpan({text: value.display, cls: 'create-todo-suggestion-value'})
+    row.createSpan({text: value.hint, cls: 'create-todo-suggestion-hint'})
+    row.style.display = 'flex'
+    row.style.alignItems = 'center'
+    row.style.justifyContent = 'space-between'
+    row.style.gap = '12px'
+  }
+
+  selectSuggestion(value: CreateTodoSuggestion, evt: MouseEvent | KeyboardEvent) {
+    const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length
+    const beforeCursor = this.inputEl.value.slice(0, cursor)
+    const afterCursor = this.inputEl.value.slice(cursor)
+    const match = beforeCursor.match(/(?:^|\s)(\[\[[^\s\[]*|\#[^\s#]*)$/)
+    const start = match ? cursor - match[1].length : cursor
+    const inserted = value.type === 'link' ? `[[${value.value}]]` : `#${value.value}`
+    const trailingSpace = value.type === 'tag' ? ' ' : ''
+    this.setValue(`${this.inputEl.value.slice(0, start)}${inserted}${trailingSpace}${afterCursor}`)
+    const caret = start + inserted.length + trailingSpace.length
+    queueMicrotask(() => {
+      this.inputEl.setSelectionRange(caret, caret)
+      this.inputEl.focus()
+    })
+    this.close()
+  }
+}
+
+export class CreateTodoModal extends Modal {
+  private inputComponent: TextComponent | null = null
+  private suggest: CreateTodoInputSuggest | null = null
+  private createButton: HTMLButtonElement | null = null
+
+  constructor(
+    app: App,
+    private onCreate: (text: string) => Promise<void>,
+  ) {
+    super(app)
+  }
+
+  onOpen() {
+    this.titleEl.setText('Create todo')
+    const wrapper = this.contentEl.createDiv({cls: 'create-todo-modal'})
+    const inputWrap = wrapper.createDiv({cls: 'create-todo-input-wrap'})
+    this.inputComponent = new TextComponent(inputWrap)
+    this.inputComponent.setPlaceholder('Todo text')
+    this.inputComponent.inputEl.addClass('create-todo-input')
+    wrapper.style.display = 'flex'
+    wrapper.style.flexDirection = 'column'
+    wrapper.style.gap = '10px'
+    inputWrap.style.padding = '8px 10px'
+    inputWrap.style.border = '1px solid var(--background-modifier-border)'
+    inputWrap.style.borderRadius = '8px'
+    inputWrap.style.background = 'var(--background-primary)'
+    this.inputComponent.inputEl.style.width = '100%'
+    this.inputComponent.inputEl.style.border = 'none'
+    this.inputComponent.inputEl.style.background = 'transparent'
+    this.inputComponent.inputEl.style.boxShadow = 'none'
+    this.inputComponent.inputEl.style.padding = '0'
+    const actions = wrapper.createDiv({cls: 'create-todo-actions'})
+    actions.style.display = 'flex'
+    actions.style.gap = '8px'
+    actions.style.justifyContent = 'flex-end'
+    this.createButton = actions.createEl('button', {
+      text: 'Create',
+      cls: 'create-todo-create',
+    })
+    const cancelButton = actions.createEl('button', {
+      text: 'Cancel',
+      cls: 'create-todo-cancel',
+    })
+    this.createButton.style.alignSelf = 'flex-end'
+    this.createButton.style.padding = '0 14px'
+    this.createButton.style.height = '30px'
+    this.createButton.style.borderRadius = '8px'
+    this.createButton.style.border = '1px solid var(--background-modifier-border)'
+    this.createButton.style.background = 'var(--interactive-accent)'
+    this.createButton.style.color = 'var(--text-on-accent)'
+    this.createButton.style.boxShadow = 'none'
+    cancelButton.style.padding = '0 14px'
+    cancelButton.style.height = '30px'
+    cancelButton.style.borderRadius = '8px'
+    cancelButton.style.border = '1px solid var(--background-modifier-border)'
+    cancelButton.style.background = 'var(--background-primary)'
+    cancelButton.style.boxShadow = 'none'
+    const hint = wrapper.createDiv({cls: 'create-todo-hint'})
+    hint.setText('Type [[ for notes or # for tags.')
+    hint.style.color = 'var(--text-faint)'
+    hint.style.fontSize = '12px'
+
+    this.suggest = new CreateTodoInputSuggest(
+      this.app,
+      this.inputComponent.inputEl,
+      this.app.vault.getMarkdownFiles(),
+      this.collectTags(),
+    )
+    this.suggest.onSelect((value, evt) => {
+      // selection is handled in selectSuggestion
+    })
+
+    const submit = async () => {
+      const text = this.inputComponent?.getValue() ?? ''
+      if (!text.trim()) return
+      await this.onCreate(text)
+      this.close()
+    }
+
+    this.inputComponent.inputEl.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault()
+        void submit()
+      }
+      if (ev.key === 'Escape') {
+        ev.preventDefault()
+        this.close()
+      }
+    })
+    this.inputComponent.onChange(() => {
+      if (this.createButton) this.createButton.disabled = !this.inputComponent?.getValue().trim()
+    })
+    this.createButton.disabled = true
+    this.createButton.addEventListener('click', () => void submit())
+    cancelButton.addEventListener('click', () => this.close())
+    queueMicrotask(() => this.inputComponent?.inputEl.focus())
+  }
+
+  onClose() {
+    this.suggest?.close()
+    this.contentEl.empty()
+    this.inputComponent = null
+    this.suggest = null
+    this.createButton = null
+  }
+
+  private collectTags() {
+    const tags = new Set<string>()
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const cache = this.app.metadataCache.getFileCache(file)
+      if (!cache) continue
+      for (const tag of getAllTagsFromMetadata(cache)) {
+        const normalized = tag.replace(/^#/, '').trim()
+        if (normalized) tags.add(normalized)
+      }
+    }
+    return Array.from(tags).sort((a, b) => a.localeCompare(b))
+  }
 }
 
 const findAllTodosInFile = (file: FileInfo): TodoItem[] => {
@@ -351,7 +601,7 @@ const setTodoPriorityAtLine = (
 
   const prefix = match[1]
   const body = match[4]
-  const withoutPriority = stripTrailingPriority(body)
+  const withoutPriority = stripPriorityFromText(body)
   const priorityStr = priority === 'none' ? '' : ` ${PRIORITY_EMOJI[priority]}`
   fileLines[line] = `${prefix}${withoutPriority}${priorityStr}`.trimEnd()
   return combineFileLines(fileLines)
@@ -365,6 +615,27 @@ const setTodoTextAtLine = (fileLines: string[], line: number, text: string) => {
   const prefix = match[1]
   fileLines[line] = `${prefix}${text}`.trimEnd()
   return combineFileLines(fileLines)
+}
+
+const setTodoTagAtLine = (fileLines: string[], line: number, tag: string) => {
+  const target = fileLines[line]
+  const match = target.match(/^((\s|\>)*([\-\*]|[0-9]+\.)\s\[[^\]]+\]\s{1,4})(.*)$/)
+  if (!match) return combineFileLines(fileLines)
+
+  const prefix = match[1]
+  const nextText = appendTagToText(match[4], tag)
+  fileLines[line] = `${prefix}${nextText}`.trimEnd()
+  return combineFileLines(fileLines)
+}
+
+const moveTodoAtLineToBullet = (line: string, movedToLabel: string) => {
+  const match = line.match(/^((\s|\>)*([\-\*]|[0-9]+\.)\s)\[[^\]]+\]\s{1,4}(.*)$/)
+  if (!match) return line
+
+  const prefix = match[1]
+  const body = stripTrailingDoneDate(stripPriorityFromText(match[4]).trimEnd())
+  const movedText = `(moved to note -> [[${movedToLabel}]])`
+  return `${prefix}${body ? `${body} ` : ''}${movedText}`.trimEnd()
 }
 
 const hideTodoAtLine = (fileLines: string[], line: number) => {

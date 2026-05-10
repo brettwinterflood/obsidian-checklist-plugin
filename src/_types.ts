@@ -67,7 +67,7 @@ export type DateFilter =
   | 'last60'
   | 'all'
 
-export type Icon = 'chevron' | 'settings'
+export type Icon = 'chevron' | 'settings' | 'refresh' | 'plus' | 'trash' | 'calendar'
 
 export type KeysOfType<T, V> = {
   [K in keyof T]: T[K] extends V ? K : never

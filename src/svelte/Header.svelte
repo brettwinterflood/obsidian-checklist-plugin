@@ -14,16 +14,23 @@
   export let showOpenTableButton: boolean = false
   export let todoCount: number = 0
   export let priorityCounts: Array<{ priority: Priority; count: number }> = []
-  export let selectedPriority: Priority | "" = ""
+  export let selectedPriorities: Priority[] = []
+  export let totalTodoCount: number = 0
   export let dateFilter: DateFilter = "last14"
-  export let usedTags: string[] = []
+  export let usedTagCounts: Array<{ tag: string; count: number }> = []
   export let selectedUsedTag: string = ""
   export let onTagStatusChange: (tag: string, status: boolean) => void
   export let onPriorityStatusChange: (priority: Priority, status: boolean) => void
   export let onPriorityFilterChange: (priority: Priority | "") => void
+  export let onPriorityRangeChange: (priorities: Priority[]) => void
   export let onDateFilterChange: (filter: DateFilter) => void
   export let onUsedTagFilterChange: (tag: string) => void
   export let onOpenTableView: () => void
+  export let onToggleGroupByDay: () => void
+  export let onCreateTodo: () => void
+  export let onFullReload: () => void
+  export let showGroupByDayButton: boolean = false
+  export let groupByDay: boolean = false
   export let onNoteVisibilityChange: (path: string, visible: boolean) => void
   export let onIgnoredFileToggle: (path: string) => void
   export let onExcludedFolderToggle: (path: string) => void
@@ -31,6 +38,12 @@
 
   let showPopover = false
   let search = ""
+  let priorityPointerDown = false
+  let priorityPointerMoved = false
+  let priorityDragStart = -1
+  let priorityDragEnd = -1
+  let suppressPriorityClick = false
+  const priorityOrder: Priority[] = ["highest", "high", "medium", "none", "low", "lowest"]
   const dateFilters: Array<{ value: DateFilter; label: string }> = [
     { value: "today", label: "Today" },
     { value: "last7", label: "1 week" },
@@ -56,9 +69,117 @@
     return "⬜"
   }
 
-  const handleUsedTagChange = (ev: Event) => {
-    const target = ev.currentTarget as HTMLSelectElement
-    onUsedTagFilterChange(target.value)
+  const priorityTint = (priority: Priority) => {
+    if (priority === "highest") return "rgba(255, 214, 214, 0.55)"
+    if (priority === "high") return "rgba(255, 232, 214, 0.5)"
+    if (priority === "medium") return "rgba(243, 245, 210, 0.45)"
+    if (priority === "none") return "transparent"
+    if (priority === "low") return "rgba(221, 245, 226, 0.5)"
+    return "rgba(214, 246, 241, 0.46)"
+  }
+
+  const displayTag = (tag: string) => tag.replace(/^#/, "")
+
+  const tagEmoji = (tag: string) => {
+    const value = displayTag(tag).toLowerCase()
+    const rules: Array<{ match: RegExp; emoji: string }> = [
+      { match: /(shopping|buy|purchase)/, emoji: "🛒" },
+      { match: /drip/, emoji: "🧥" },
+      { match: /(books|reading)/, emoji: "📖" },
+      { match: /dj/, emoji: "👨🏻‍🎤" },
+      { match: /production/, emoji: "🎧" },
+      { match: /visuals/, emoji: "🖼️" },
+      { match: /(music|release)/, emoji: "🎵" },
+      { match: /travel/, emoji: "🗺️" },
+      { match: /living-location/, emoji: "🏠" },
+      { match: /career/, emoji: "💼" },
+      { match: /(business|entrepreneurship|project)/, emoji: "🛠️" },
+      { match: /finance/, emoji: "💰" },
+      { match: /marketing/, emoji: "📈" },
+      { match: /(fitness|health)/, emoji: "💪" },
+      { match: /(dating|girls)/, emoji: "👱🏻‍♀️" },
+      { match: /(art|creative)/, emoji: "🎨" },
+      { match: /(mindset|philosophy|religion|politics)/, emoji: "🧠" },
+      { match: /\blife\b/, emoji: "⭐" },
+      { match: /(alert|warning|pay attention)/, emoji: "🚨" },
+      { match: /asia/, emoji: "🇭🇰🇸🇬🇹🇼🇹🇭🐉🗾🧧" },
+      { match: /(definition|what)/, emoji: "❓" },
+      { match: /\bwhy\b/, emoji: "🤷" },
+      { match: /shipping/, emoji: "🚢" },
+      { match: /(socialising|networking|meeting people)/, emoji: "🗣️" },
+      { match: /(coding|backend)/, emoji: "📟" },
+      { match: /(in progress|progress)/, emoji: "🚧" },
+      { match: /projects in progress/, emoji: "📂" },
+      { match: /(occult|magic|spells|affirmations)/, emoji: "🔮" },
+      { match: /(dress|form)/, emoji: "🧥" },
+      { match: /family/, emoji: "🏡" },
+      { match: /(goal|target|objective)/, emoji: "🎯" },
+      { match: /(next up|future|deferred)/, emoji: "🔜" },
+      { match: /(learning|growth)/, emoji: "🌱" },
+    ]
+    return rules.find((rule) => rule.match.test(value))?.emoji ?? ""
+  }
+
+  const rangeFromIndexes = (start: number, end: number) => {
+    const low = Math.min(start, end)
+    const high = Math.max(start, end)
+    return priorityOrder.slice(low, high + 1)
+  }
+
+  const selectedPriorityIndexes = () =>
+    selectedPriorities
+      .map((priority) => priorityOrder.indexOf(priority))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b)
+
+  const isPriorityRangeStart = (index: number) => {
+    const indexes = selectedPriorityIndexes()
+    return indexes.length > 1 && index === indexes[0]
+  }
+
+  const isPriorityRangeEnd = (index: number) => {
+    const indexes = selectedPriorityIndexes()
+    return indexes.length > 1 && index === indexes[indexes.length - 1]
+  }
+
+  const isPriorityRangeMiddle = (index: number) => {
+    const indexes = selectedPriorityIndexes()
+    return indexes.length > 1 && index > indexes[0] && index < indexes[indexes.length - 1]
+  }
+
+  const isPrioritySingle = (index: number) => selectedPriorities.length === 1 && selectedPriorityIndexes()[0] === index
+
+  const startPriorityDrag = (index: number) => {
+    priorityPointerDown = true
+    priorityPointerMoved = false
+    priorityDragStart = index
+    priorityDragEnd = index
+    suppressPriorityClick = false
+    onPriorityRangeChange(rangeFromIndexes(index, index))
+  }
+
+  const extendPriorityDrag = (index: number) => {
+    if (!priorityPointerDown) return
+    if (priorityDragEnd === index) return
+    priorityPointerMoved = true
+    priorityDragEnd = index
+    suppressPriorityClick = true
+    onPriorityRangeChange(rangeFromIndexes(priorityDragStart, priorityDragEnd))
+  }
+
+  const finishPriorityDrag = () => {
+    if (!priorityPointerDown) return
+    priorityPointerDown = false
+    suppressPriorityClick = priorityPointerMoved
+    priorityPointerMoved = false
+  }
+
+  const handlePriorityClick = (priority: Priority) => {
+    if (suppressPriorityClick) {
+      suppressPriorityClick = false
+      return
+    }
+    onPriorityFilterChange(priority)
   }
 </script>
 
@@ -97,31 +218,86 @@
     {/each}
   </div>
   <div class="toolbar-actions">
-    <select
-      class="tag-filter"
-      title="Filter by hashtag"
-      value={selectedUsedTag}
-      on:change={handleUsedTagChange}
-    >
-      <option value="">All tags</option>
-      {#each usedTags as tag}
-        <option value={tag}>{tag}</option>
-      {/each}
-    </select>
-    <div class="priority-counts" title="Visible todos by priority">
-      {#each priorityCounts as item}
+    <div class="tag-filter-wrap" title="Filter by hashtag">
+      <button
+        class:active={!selectedUsedTag}
+        class="tag-filter-clear"
+        on:click={() => onUsedTagFilterChange("")}
+      >
+        All tags
+      </button>
+      <div class="tag-filter-list">
+        {#each usedTagCounts as item}
+          <button
+            class:active={selectedUsedTag === item.tag}
+            class="tag-filter-chip"
+            on:click={() => onUsedTagFilterChange(selectedUsedTag === item.tag ? "" : item.tag)}
+          >
+            {#if tagEmoji(item.tag)}
+              <span class="tag-prefix">{tagEmoji(item.tag)}</span>
+            {/if}
+            <span class="tag-badge">{displayTag(item.tag)}</span>
+            <span class="tag-count">{item.count}</span>
+          </button>
+        {/each}
         <button
-          class:active={selectedPriority === item.priority}
-          on:click={() => onPriorityFilterChange(selectedPriority === item.priority ? "" : item.priority)}
+          class:visible={!!selectedUsedTag}
+          class="tag-filter-clear-end"
+          aria-label="Clear tag filter"
+          title="Clear tag filter"
+          on:click={() => onUsedTagFilterChange("")}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+    <div class="priority-counts" title="Visible todos by priority">
+      {#each priorityCounts as item, index}
+        <button
+          class:active={selectedPriorities.includes(item.priority)}
+          class:selected-single={isPrioritySingle(index)}
+          class:selected-range-start={isPriorityRangeStart(index)}
+          class:selected-range-middle={isPriorityRangeMiddle(index)}
+          class:selected-range-end={isPriorityRangeEnd(index)}
+          style={`--priority-chip-bg:${priorityTint(item.priority)}`}
+          on:pointerdown={() => startPriorityDrag(index)}
+          on:pointerenter={() => extendPriorityDrag(index)}
+          on:pointerup={finishPriorityDrag}
+          on:pointercancel={finishPriorityDrag}
+          on:click={() => handlePriorityClick(item.priority)}
         >
           {priorityBadgeLabel(item.priority)} {item.count}
         </button>
       {/each}
-      <span class="total-count">({todoCount} total)</span>
+      {#if selectedPriorities.length}
+        <button class="priority-clear" title="Clear priority filter" aria-label="Clear priority filter" on:click={() => onPriorityFilterChange("")}>
+          ×
+        </button>
+      {/if}
+      <span class="total-count">
+        ({todoCount} of {totalTodoCount} total)
+      </span>
     </div>
     {#if showOpenTableButton}
       <button class="mode-toggle" on:click={onOpenTableView}>Table</button>
     {/if}
+    {#if showGroupByDayButton}
+      <button
+        class="mode-toggle icon-button"
+        class:active={groupByDay}
+        title="Group by day"
+        aria-label="Group by day"
+        on:click={onToggleGroupByDay}
+      >
+        <Icon name="calendar" style="button" />
+      </button>
+    {/if}
+    <button class="mode-toggle icon-button" title="Create todo" aria-label="Create todo" on:click={onCreateTodo}>
+      <Icon name="plus" style="button" />
+    </button>
+    <button class="mode-toggle icon-button" title="Full reload" aria-label="Full reload" on:click={onFullReload}>
+      <Icon name="refresh" style="button" />
+    </button>
     <div class="settings-container">
       <Icon
         name="settings"
@@ -263,8 +439,8 @@
   }
   .search-wrap {
     position: relative;
-    flex: 0 1 380px;
-    min-width: 220px;
+    flex: 0 1 190px;
+    min-width: 170px;
   }
 
   .toolbar-actions {
@@ -272,18 +448,33 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 2px;
     flex: 0 0 auto;
   }
 
-  .tag-filter {
-    max-width: 180px;
-    height: 30px;
+  .tag-filter-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 30px;
+    padding: 4px 8px;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--checklist-listItemBorderRadius);
     background: var(--background-primary);
-    color: var(--text-muted);
-    font-size: 12px;
+    flex: 1 1 560px;
+    min-width: 560px;
+    max-width: none;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .tag-filter-list {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .date-tabs {
@@ -297,15 +488,17 @@
   }
 
   .date-tabs > button {
-    height: 30px;
+    height: 24px;
     width: initial;
-    padding: 0 10px;
+    padding: 0 8px;
     border: none;
     border-radius: 0;
     box-shadow: none;
     background: transparent;
     color: var(--text-muted);
     white-space: nowrap;
+    outline: none;
+    font-size: 11px;
   }
 
   .date-tabs > button.active {
@@ -340,11 +533,6 @@
     color: var(--text-normal);
   }
 
-
-  .search:focus {
-    box-shadow: 0 0 0 2px var(--checklist-accentColor);
-  }
-
   .settings-container {
     flex-shrink: 1;
     display: flex;
@@ -356,13 +544,29 @@
     height: 100%;
     width: initial;
     padding: 0 10px;
+    outline: none;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .icon-button {
+    width: 30px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    outline: none;
+    border: none;
+    background: transparent;
+    box-shadow: none;
   }
 
   .priority-counts {
     min-height: 30px;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 0;
     padding: 0 8px;
     border-radius: var(--checklist-listItemBorderRadius);
     border: 1px solid var(--background-modifier-border);
@@ -381,16 +585,161 @@
     padding: 0 5px;
     border: 1px solid transparent;
     border-radius: 6px;
-    background: transparent;
+    background: var(--priority-chip-bg, transparent);
     box-shadow: none;
     color: var(--text-muted);
+    outline: none;
+    margin-right: 6px;
   }
 
   .priority-counts > button:hover,
   .priority-counts > button.active {
+    background: color-mix(
+      in srgb,
+      var(--priority-chip-bg, var(--background-secondary)) 72%,
+      var(--background-secondary) 28%
+    );
+    border-color: var(--background-modifier-border);
+    color: var(--text-normal);
+  }
+
+  .priority-counts > button.selected-single {
+    border-color: var(--background-modifier-border);
+    box-shadow: 0 0 0 1px var(--background-modifier-border);
+    border-radius: 999px;
+  }
+
+  .priority-counts > button.selected-range-start {
+    border-color: var(--background-modifier-border);
+    border-radius: 999px 0 0 999px;
+    border-right-color: transparent;
+    box-shadow: 0 0 0 1px var(--background-modifier-border);
+    margin-right: 0;
+  }
+
+  .priority-counts > button.selected-range-middle {
+    border-color: var(--background-modifier-border);
+    border-radius: 0;
+    border-left-color: transparent;
+    border-right-color: transparent;
+    box-shadow: none;
+    margin-right: 0;
+  }
+
+  .priority-counts > button.selected-range-end {
+    border-color: var(--background-modifier-border);
+    border-radius: 0 999px 999px 0;
+    border-left-color: transparent;
+    box-shadow: 0 0 0 1px var(--background-modifier-border);
+    margin-right: 6px;
+  }
+
+  .priority-clear {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    box-shadow: none;
+    line-height: 1;
+    font-size: 14px;
+    outline: none;
+  }
+
+  .priority-clear:hover {
+    background: var(--background-modifier-border-hover);
+    color: var(--text-normal);
+  }
+
+  .tag-filter-clear,
+  .tag-filter-chip {
+    width: initial;
+    height: 22px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    flex: 0 0 auto;
+    outline: none;
+  }
+
+  .tag-filter-clear:hover,
+  .tag-filter-chip:hover,
+  .tag-filter-chip.active,
+  .tag-filter-clear.active {
     background: var(--background-secondary);
     border-color: var(--background-modifier-border);
     color: var(--text-normal);
+  }
+
+  .tag-filter-chip {
+    padding-left: 6px;
+    padding-right: 7px;
+    gap: 2px;
+  }
+
+  .tag-badge {
+    color: var(--tag-color, var(--text-accent));
+    font-weight: 600;
+  }
+
+  .tag-prefix {
+    color: var(--text-muted);
+    flex: 0 0 auto;
+  }
+
+  .tag-filter-chip .tag-count {
+    color: var(--text-faint);
+    margin-left: 0;
+    min-width: 18px;
+    height: 16px;
+    padding: 0 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--background-secondary);
+  }
+
+  .tag-filter-clear-end {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1;
+    flex: 0 0 auto;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .tag-filter-clear-end.visible {
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .tag-filter-clear-end:hover {
+    color: var(--text-normal);
+  }
+
+  .container :focus,
+  .container :focus-visible {
+    outline: none;
+    box-shadow: none;
   }
 
   .total-count {

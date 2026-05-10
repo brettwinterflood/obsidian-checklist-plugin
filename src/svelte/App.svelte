@@ -12,9 +12,13 @@
   export let _hiddenTags: string[]
   export let hiddenPriorities: Priority[]
   export let dateFilter: DateFilter
-  export let usedTags: string[]
+  export let usedTagCounts: Array<{ tag: string; count: number }> = []
   export let selectedUsedTag: string
-  export let selectedPriority: Priority | ""
+  export let selectedPriorities: Priority[]
+  export let totalTodoCount: number
+  export let priorityCounts: Array<{ priority: Priority; count: number }> = []
+  export let priorityRowTint: boolean = true
+  export let colorDurationBars: boolean = false
   export let pinnedFilePaths: string[]
   export let ignoredFilePaths: string[]
   export let excludedFolderPaths: string[]
@@ -24,7 +28,11 @@
   export let onDateFilterChange: (filter: DateFilter) => void
   export let onUsedTagFilterChange: (tag: string) => void
   export let onPriorityFilterChange: (priority: Priority | "") => void
+  export let onPriorityRangeChange: (priorities: Priority[]) => void
   export let onOpenTableView: () => void
+  export let onToggleGroupByDay: () => void
+  export let onCreateTodo: () => void
+  export let onFullReload: () => void
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
   export let onHideTodo: (item: TodoItem) => Promise<void>
@@ -33,10 +41,12 @@
   export let onPriorityChange: (item: TodoItem, priority: Priority) => Promise<void>
   export let onTextChange: (item: TodoItem, text: string) => Promise<void>
   export let onToggleChecked: (item: TodoItem) => Promise<void>
+  export let onAddTag: (item: TodoItem, tag: string) => Promise<void>
   export let isLoading: boolean
   export let app: App
   export let todoGroups: TodoGroup[] = []
   export let tableItems: TodoItem[] = []
+  export let groupByDay: boolean = false
 
   const visibleTags = todoTags.filter((t) => !_hiddenTags.includes(t))
 
@@ -55,6 +65,11 @@
 
   const priorities: Priority[] = ["highest", "high", "medium", "none", "low", "lowest"]
 
+  const toggleGroupByDay = () => {
+    groupByDay = !groupByDay
+    onToggleGroupByDay()
+  }
+
   const updatePriorityStatus = (priority: Priority, enabled: boolean) => {
     const newHidden = hiddenPriorities.filter((p) => p !== priority)
     if (!enabled) newHidden.push(priority)
@@ -71,11 +86,6 @@
     a.localeCompare(b),
   )
   $: visibleTodoCount = tableItems.length
-  $: priorityCounts = priorities.map((priority) => ({
-    priority,
-    count: tableItems.filter((item) => item.priority === priority).length,
-  }))
-
   const updateNoteVisibility = (path: string, visible: boolean) => {
     const nextIgnored = ignoredFilePaths.filter((p) => p !== path)
     if (!visible) nextIgnored.push(path)
@@ -87,14 +97,17 @@
     <Header
       disableSearch={todoGroups.length === 0}
       todoCount={visibleTodoCount}
+      {totalTodoCount}
       {priorityCounts}
-      {selectedPriority}
+      {selectedPriorities}
       {dateFilter}
-      {usedTags}
+      {usedTagCounts}
       {selectedUsedTag}
       {todoTags}
       hiddenTags={_hiddenTags}
       showOpenTableButton={!isTableView}
+      showGroupByDayButton={isTableView}
+      {groupByDay}
       {hiddenPriorities}
       {priorities}
       {ignoredFilePaths}
@@ -103,9 +116,13 @@
       onTagStatusChange={updateTagStatus}
       onPriorityStatusChange={updatePriorityStatus}
       onPriorityFilterChange={onPriorityFilterChange}
+      onPriorityRangeChange={onPriorityRangeChange}
       onDateFilterChange={onDateFilterChange}
       onUsedTagFilterChange={onUsedTagFilterChange}
       {onOpenTableView}
+      onToggleGroupByDay={toggleGroupByDay}
+      {onCreateTodo}
+      {onFullReload}
       onNoteVisibilityChange={updateNoteVisibility}
       onIgnoredFileToggle={removeIgnored}
       onExcludedFolderToggle={removeExcludedFolder}
@@ -130,9 +147,15 @@
         <TableView
           {app}
           items={tableItems}
+          {todoTags}
+          {dateFilter}
+          {priorityRowTint}
+          {colorDurationBars}
+          {groupByDay}
           onPriorityChange={onPriorityChange}
           onTextChange={onTextChange}
           onToggleChecked={onToggleChecked}
+          onAddTag={onAddTag}
           onHideFile={onHideFile}
           onHideFolder={onHideFolder}
           onHideTodo={onHideTodo}
@@ -144,6 +167,7 @@
             {group}
             {app}
             {lookAndFeel}
+            {priorityRowTint}
             pinnedFilePaths={pinnedFilePaths}
             isCollapsed={_collapsedSections.includes(group.id)}
             onToggle={toggleGroup}

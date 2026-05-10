@@ -8,6 +8,7 @@
   export let item: TodoItem
   export let lookAndFeel: LookAndFeel
   export let app: App
+  export let priorityRowTint: boolean = true
   export let onToggleChecked: (item: TodoItem) => Promise<void> = async item => {
     await toggleTodoItem(item, app)
   }
@@ -16,6 +17,16 @@
 
   const toggleItem = async (item: TodoItem) => {
     await onToggleChecked(item)
+  }
+
+  const priorityTint = (priority: TodoItem["priority"]) => {
+    if (!priorityRowTint) return "transparent"
+    if (priority === "highest") return "rgba(255, 214, 214, 0.55)"
+    if (priority === "high") return "rgba(255, 232, 214, 0.5)"
+    if (priority === "medium") return "rgba(243, 245, 210, 0.45)"
+    if (priority === "none") return "transparent"
+    if (priority === "low") return "rgba(221, 245, 226, 0.5)"
+    return "rgba(214, 246, 241, 0.46)"
   }
 
   const handleClick = (ev: MouseEvent, item?: TodoItem) => {
@@ -37,7 +48,7 @@
   }
 </script>
 
-<li class={`${lookAndFeel}`}>
+<li class={`${lookAndFeel}`} style={`--priority-row-bg:${priorityTint(item.priority)}`}>
   <button
     class="toggle"
     on:click={(ev) => {
@@ -54,14 +65,18 @@
   li {
     display: flex;
     align-items: center;
-    background-color: var(--checklist-listItemBackground);
+    background-color: var(--priority-row-bg, var(--checklist-listItemBackground));
     border-radius: var(--checklist-listItemBorderRadius);
     margin: var(--checklist-listItemMargin);
     cursor: pointer;
     transition: background-color 100ms ease-in-out;
   }
   li:hover {
-    background-color: var(--checklist-listItemBackground--hover);
+    background-color: color-mix(
+      in srgb,
+      var(--priority-row-bg, var(--checklist-listItemBackground)) 75%,
+      var(--checklist-listItemBackground--hover) 25%
+    );
   }
   .toggle {
     padding: var(--checklist-togglePadding);
