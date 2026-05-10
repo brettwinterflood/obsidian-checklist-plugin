@@ -6,7 +6,6 @@
   export let app: App
   export let items: TodoItem[] = []
   export let onPriorityChange: (item: TodoItem, priority: Priority) => Promise<void>
-  export let onTextChange: (item: TodoItem, text: string) => Promise<void>
   export let onToggleChecked: (item: TodoItem) => Promise<void>
   export let onHideFile: (path: string) => Promise<void>
   export let onHideFolder: (path: string) => Promise<void>
@@ -26,9 +25,18 @@
   ]
   const priorityActionOptions = [...priorityOptions].reverse()
 
-  const handleTextSave = async (item: TodoItem, event: Event) => {
-    const target = event.currentTarget as HTMLInputElement
-    await onTextChange(item, target.value)
+  const handleTodoClick = (ev: MouseEvent, item: TodoItem) => {
+    const target = ev.target as HTMLElement
+    if (target.tagName === "A") {
+      ev.stopPropagation()
+      if (target.dataset.type === "link") {
+        navToFile(app, target.dataset.filepath, ev, item.line)
+      } else if (target.dataset.type === "tag") {
+        // noop
+      }
+      return
+    }
+    navToFile(app, item.filePath, ev, item.line)
   }
 
   const priorityRank: Record<Priority, number> = {
@@ -139,7 +147,7 @@
       {/if}
       <tr>
         <td>
-          <input class="todo-input" type="text" value={item.todoText} on:change={(ev) => handleTextSave(item, ev)} />
+          <div class="todo-content" on:click={(ev) => handleTodoClick(ev, item)}>{@html item.rawHTML}</div>
         </td>
         <td>
           <button class="note-link" on:click={(ev) => navToFile(app, item.filePath, ev, item.line)}>{item.fileLabel}</button>
@@ -381,7 +389,7 @@
     text-decoration: underline;
   }
 
-  .todo-input {
+  .todo-content {
     width: 100%;
     min-width: 0;
     border: 1px solid transparent;
@@ -389,12 +397,23 @@
     border-radius: 6px;
     padding: 4px 6px;
     color: var(--text-normal);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .todo-input:hover,
-  .todo-input:focus {
+  .todo-content:hover {
     border-color: var(--background-modifier-border);
-    outline: none;
+  }
+
+  :global(.todo-content p) {
+    margin: 0;
+  }
+
+  :global(.todo-content a) {
+    color: var(--link-color);
+    text-decoration: underline;
   }
 
   .hide-menu-wrap {

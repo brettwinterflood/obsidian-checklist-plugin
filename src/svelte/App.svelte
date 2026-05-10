@@ -31,7 +31,6 @@
   export let onMoveToToday: (item: TodoItem) => Promise<void>
   export let onTogglePin: (path: string) => Promise<void>
   export let onPriorityChange: (item: TodoItem, priority: Priority) => Promise<void>
-  export let onTextChange: (item: TodoItem, text: string) => Promise<void>
   export let onToggleChecked: (item: TodoItem) => Promise<void>
   export let isLoading: boolean
   export let app: App
@@ -131,7 +130,6 @@
           {app}
           items={tableItems}
           onPriorityChange={onPriorityChange}
-          onTextChange={onTextChange}
           onToggleChecked={onToggleChecked}
           onHideFile={onHideFile}
           onHideFolder={onHideFolder}
