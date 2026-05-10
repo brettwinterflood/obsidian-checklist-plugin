@@ -26,7 +26,7 @@
     { value: "low", label: "🔽" },
     { value: "lowest", label: "⏬" },
   ]
-  const priorityActionOptions = [...priorityOptions].reverse()
+  const priorityActionOptions = priorityOptions
 
   const handleTodoClick = (ev: MouseEvent, item: TodoItem) => {
     const target = ev.target as HTMLElement
@@ -192,8 +192,8 @@
           {:else}
             <div class="todo-content" on:dblclick={() => startEditing(item)} on:click={(ev) => handleTodoClick(ev, item)}>
               {@html item.rawHTML}
-              <button class="todo-edit-trigger" title="Edit todo" on:click|stopPropagation={() => startEditing(item)}>
-                Edit
+              <button class="todo-edit-trigger" title="Edit todo" aria-label="Edit todo" on:click|stopPropagation={() => startEditing(item)}>
+                ✎
               </button>
             </div>
           {/if}
@@ -471,14 +471,19 @@
   .todo-edit-trigger {
     margin-left: auto;
     flex: 0 0 auto;
-    width: initial;
-    padding: 0 8px;
+    width: 24px;
     height: 24px;
+    padding: 0;
     border-radius: 6px;
     border: 1px solid var(--background-modifier-border);
     background: var(--background-primary-alt);
     box-shadow: none;
     color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
   }
 
   .todo-edit-trigger:hover {
